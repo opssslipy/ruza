@@ -19,6 +19,15 @@ Pop-Location
 # deployed game = site root (what GitHub Pages serves)
 foreach ($d in 'assets', 'portraits') { robocopy (Join-Path $game "dist\$d") (Join-Path $repo $d) /MIR /NFL /NDL /NJH /NJS | Out-Null }
 Copy-Item (Join-Path $game 'dist\index.html') (Join-Path $repo 'index.html') -Force
+# Faces: the author decided (2026-10-28) to publish cropped photos of his friends, consent collected by him.
+# Only the 240x240 crops embedded as SVG go out; the originals in refs-private never do. Without this step the drawn portraits would overwrite them.
+if (Test-Path (Join-Path $game 'refs-private\cropped')) {
+  & (Join-Path $PSScriptRoot 'make-private-build.ps1') | Out-Null
+  foreach ($f in Get-ChildItem (Join-Path $game 'refs-private\cropped') -Filter *.png) {
+    Copy-Item (Join-Path $game "dist-private\portraits\$($f.BaseName).svg") (Join-Path $repo "portraits\$($f.BaseName).svg") -Force
+  }
+  'Faces included: ' + ((Get-ChildItem (Join-Path $game 'refs-private\cropped') -Filter *.png).BaseName -join ', ')
+}
 # map.json is loaded at runtime from the site root
 Copy-Item (Join-Path $game 'dist\map.json') (Join-Path $repo 'map.json') -Force
 
