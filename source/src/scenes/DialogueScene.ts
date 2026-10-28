@@ -1,23 +1,26 @@
 ﻿import Phaser from 'phaser';
 import { CHARACTERS } from '../content/characters';
+import { DIALOGUE_EFFECTS } from '../content/effects';
 import { Dialogue, type DialogueLine } from '../dialogue';
 import { FONT, GAME_HEIGHT, GAME_WIDTH } from '../config';
-import { loadSave, writeSave } from '../save';
+import { applyEffect, describeEffect } from '../game/state';
+import { getState, persist } from '../game/store';
 
 export class DialogueScene extends Phaser.Scene {
   private dialogue!: Dialogue;
   private characterId = '';
+  private returnTo = 'menu';
+  private returnData: object = {};
   private ui: Phaser.GameObjects.GameObject[] = [];
 
   constructor() {
     super('dialogue');
   }
 
-  private returnTo = 'menu';
-
-  init(data: { characterId: string; returnTo?: string }): void {
+  init(data: { characterId: string; returnTo?: string; returnData?: object }): void {
     this.characterId = data.characterId;
     this.returnTo = data.returnTo ?? 'menu';
+    this.returnData = data.returnData ?? {};
   }
 
   preload(): void {
@@ -47,20 +50,22 @@ export class DialogueScene extends Phaser.Scene {
     this.show(this.dialogue.next());
   }
 
-  private show(line: DialogueLine): void {
+  private show(line: DialogueLine, extra = ''): void {
     this.ui.forEach((o) => o.destroy());
     this.ui = [];
     const wrap = { fontFamily: FONT, fontSize: '20px', color: '#ffffff', wordWrap: { width: GAME_WIDTH - 40 } };
     this.ui.push(this.add.text(20, 385, line.text, wrap));
 
     if (line.ended) {
-      this.finish();
+      const result = this.finish();
+      if (result) this.ui.push(this.add.text(20, 560, result, { fontFamily: FONT, fontSize: '16px', color: '#ffe08a', wordWrap: { width: GAME_WIDTH - 40 } }));
       const back = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT - 60, GAME_WIDTH - 40, 56, 0x444444).setInteractive();
-      back.on('pointerdown', () => this.scene.start(this.returnTo));
+      back.on('pointerdown', () => this.leave());
       this.ui.push(back, this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 60, 'Назад', { fontFamily: FONT, fontSize: '22px', color: '#ffffff' }).setOrigin(0.5));
       return;
     }
 
+    void extra;
     line.choices.forEach((text, i) => {
       const y = GAME_HEIGHT - 60 - (line.choices.length - 1 - i) * 72;
       const box = this.add.rectangle(GAME_WIDTH / 2, y, GAME_WIDTH - 40, 64, 0x2b3a55).setInteractive();
@@ -69,11 +74,26 @@ export class DialogueScene extends Phaser.Scene {
     });
   }
 
-  private finish(): void {
-    const save = loadSave();
-    if (!save.talked.includes(this.characterId)) save.talked.push(this.characterId);
-    save.flags[`${this.characterId}_helped`] = this.dialogue.getFlag(`${this.characterId}_helped`);
-    writeSave(save);
+  /** Applies the consequence once per game day per character, so talking over and over cannot be farmed. */
+  private finish(): string {
+    const s = getState();
+    if (!s.talked.includes(this.characterId)) s.talked.push(this.characterId);
+    const effects = DIALOGUE_EFFECTS[this.characterId];
+    let result = '';
+    if (effects && s.talkedDay[this.characterId] !== s.day) {
+      s.talkedDay[this.characterId] = s.day;
+      const eff = this.dialogue.getFlag(`${this.characterId}_helped`) ? effects.yes : effects.no;
+      const msgs = applyEffect(s, eff);
+      result = [describeEffect(eff), ...msgs].filter(Boolean).join('\n');
+    } else if (effects) {
+      result = 'Сегодня вы уже обсудили всё важное.';
+    }
+    persist();
+    return result;
+  }
+
+  private leave(): void {
+    const s = getState();
+    this.scene.start(s.ended ? 'end' : this.returnTo, this.returnData);
   }
 }
-

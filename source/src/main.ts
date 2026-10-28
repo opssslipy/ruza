@@ -1,8 +1,11 @@
-import Phaser from 'phaser';
+﻿import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH, PASSWORD_SHA256 } from './config';
 import { MenuScene } from './scenes/MenuScene';
 import { DialogueScene } from './scenes/DialogueScene';
 import { MapScene } from './scenes/MapScene';
+import { VenueScene } from './scenes/VenueScene';
+import { CallScene } from './scenes/CallScene';
+import { EndScene } from './scenes/EndScene';
 
 const GATE_KEY = 'ruza-unlocked';
 
@@ -18,7 +21,7 @@ function startGame(): void {
     parent: 'game',
     backgroundColor: '#14110f',
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: GAME_WIDTH, height: GAME_HEIGHT },
-    scene: [MapScene, MenuScene, DialogueScene],
+    scene: [MapScene, MenuScene, DialogueScene, VenueScene, CallScene, EndScene],
   });
 }
 
@@ -52,3 +55,4 @@ if (remembered()) {
     if (e.key === 'Enter') void submit();
   });
 }
+

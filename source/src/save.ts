@@ -1,14 +1,15 @@
+import { newGame, type GameState } from './game/state';
+
 const KEY = 'ruza-save';
-const VERSION = 1;
+const VERSION = 2;
 
 export interface SaveData {
   version: number;
-  flags: Record<string, boolean>;
-  talked: string[];
+  game: GameState;
 }
 
 export function emptySave(): SaveData {
-  return { version: VERSION, flags: {}, talked: [] };
+  return { version: VERSION, game: newGame() };
 }
 
 // Storage can throw (private mode, blocked site data), so the game must keep working without it.
@@ -35,5 +36,6 @@ export function writeSave(data: SaveData, storage: Pick<Storage, 'setItem'> = lo
 function isSaveData(v: unknown): v is SaveData {
   if (typeof v !== 'object' || v === null) return false;
   const o = v as Record<string, unknown>;
-  return typeof o.version === 'number' && typeof o.flags === 'object' && o.flags !== null && Array.isArray(o.talked);
+  const g = o.game as Record<string, unknown> | undefined;
+  return typeof o.version === 'number' && typeof g === 'object' && g !== null && typeof g.day === 'number' && typeof g.money === 'number' && Array.isArray(g.talked);
 }

@@ -60,14 +60,15 @@ describe('save', () => {
   it('round-trips', () => {
     const s = memoryStorage();
     const data = emptySave();
-    data.talked.push('lev');
+    data.game.talked.push('lev');
     writeSave(data, s);
-    expect(loadSave(s).talked).toEqual(['lev']);
+    expect(loadSave(s).game.talked).toEqual(['lev']);
   });
 
   it('falls back to a fresh save on garbage or wrong version', () => {
     expect(loadSave(memoryStorage('not json'))).toEqual(emptySave());
-    expect(loadSave(memoryStorage(JSON.stringify({ version: 99, flags: {}, talked: [] })))).toEqual(emptySave());
+    expect(loadSave(memoryStorage(JSON.stringify({ version: 99, game: emptySave().game })))).toEqual(emptySave());
   });
 });
+
 
