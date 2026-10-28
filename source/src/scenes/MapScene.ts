@@ -53,6 +53,10 @@ export class MapScene extends Phaser.Scene {
   private saveAcc = 0;
   private lastPlacement = -1;
   private zoom = 1;
+  private figK = 1;
+  private labels: Phaser.GameObjects.GameObject[] = [];
+  private figures: Figure[] = [];
+  private pinch = 0;
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingResize = false;
 
@@ -75,6 +79,8 @@ export class MapScene extends Phaser.Scene {
     this.map = this.cache.json.get('map') as MapData;
     this.bits = Uint8Array.from(atob(this.map.blocked), (c) => c.charCodeAt(0));
     this.npcs = [];
+    this.figures = [];
+    this.labels = [];
     this.lastPlacement = -1;
     this.clockAcc = 0;
     ensureSprites(this);
@@ -82,13 +88,15 @@ export class MapScene extends Phaser.Scene {
     const W = this.scale.width, H = this.scale.height;
     this.worldLayer = this.add.layer();
     this.uiLayer = this.add.layer();
-    this.zoom = Math.max(0.75, Math.min(W, H) / 480);
+    // camera is high by default: about 330 m of the town across the short side of the screen
+    this.zoom = (this.registry.get('zoom') as number | undefined) ?? Math.min(W, H) / (330 * S);
     const cam = this.cameras.main;
     cam.setZoom(this.zoom).setBackgroundColor('#dde4c6').ignore(this.uiLayer);
     this.uiCam = this.cameras.add(0, 0, W, H);
     this.uiCam.ignore(this.worldLayer);
 
     this.world = new WorldRenderer(this, this.map, this.worldLayer);
+    this.world.setLod(this.zoom < 0.55 ? 0.75 : 1);
     this.drawLabels();
 
     const home = this.landmark('home');
@@ -104,6 +112,7 @@ export class MapScene extends Phaser.Scene {
     this.buildUi(W, H);
     this.setupInput();
     this.placeFriends();
+    this.applyZoom(this.zoom);
 
     const onResize = (): void => {
       if (this.resizeTimer) clearTimeout(this.resizeTimer);
@@ -137,30 +146,51 @@ export class MapScene extends Phaser.Scene {
     return l;
   }
 
+  /** Labels and pins keep a readable size on screen whatever the camera height, so they are rescaled in applyZoom(). */
   private drawLabels(): void {
+    const keep = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.labels.push(o); return this.w(o); };
     for (const s of this.map.streets) {
-      const t = this.add.text(s.x * S, s.y * S, s.n, { fontFamily: FONT, fontSize: s.big ? '14px' : '12px', color: s.r ? '#2f6fa0' : '#3d4350', stroke: '#f6f6ee', strokeThickness: 3, fontStyle: s.r ? 'italic' : 'normal' });
-      this.w(t.setOrigin(0.5).setRotation(s.a).setDepth(3));
+      const t = this.add.text(s.x * S, s.y * S, s.n, { fontFamily: FONT, fontSize: s.big ? '14px' : '12px', color: s.r ? '#3b86c0' : '#5b6472', stroke: '#f6f4ee', strokeThickness: 3, fontStyle: s.r ? 'italic' : 'normal' });
+      keep(t.setOrigin(0.5).setRotation(s.a).setDepth(3));
+    }
+    // named places from OpenStreetMap, shown like points of interest on a city map
+    for (const sh of this.map.shops) {
+      const name = sh.name.length > 24 ? `${sh.name.slice(0, 23)}…` : sh.name;
+      keep(this.add.circle(sh.pos[0] * S, sh.pos[1] * S, 4, 0x7a8aa8).setStrokeStyle(2, 0xffffff).setDepth(8));
+      keep(this.add.text(sh.pos[0] * S, sh.pos[1] * S - 12, name, { fontFamily: FONT, fontSize: '11px', color: '#5a6a8a', stroke: '#ffffff', strokeThickness: 3 }).setOrigin(0.5).setDepth(8));
     }
     for (const l of this.map.landmarks) {
       const isHome = l.id === 'home';
       const isVenue = l.kind === 'venue';
-      if (isVenue || isHome) this.w(this.add.circle(l.pos[0] * S, l.pos[1] * S, 8, isHome ? 0xffb020 : 0x2f7de1).setStrokeStyle(3, 0xffffff).setDepth(9));
-      const t = this.add.text(l.pos[0] * S, l.pos[1] * S - (isHome || isVenue ? 24 : 10), isHome ? `⌂ ${l.name}` : l.name, {
+      if (isVenue || isHome) keep(this.add.circle(l.pos[0] * S, l.pos[1] * S, 8, isHome ? 0xffb020 : 0x2f7de1).setStrokeStyle(3, 0xffffff).setDepth(9));
+      keep(this.add.text(l.pos[0] * S, l.pos[1] * S - (isHome || isVenue ? 24 : 10), isHome ? `⌂ ${l.name}` : l.name, {
         fontFamily: FONT, fontSize: isHome ? '17px' : '15px', fontStyle: 'bold', color: isHome ? '#8a4b00' : isVenue ? '#1d4e89' : '#2f3b2f', stroke: '#ffffff', strokeThickness: 4,
-      });
-      this.w(t.setOrigin(0.5).setDepth(10));
+      }).setOrigin(0.5).setDepth(10));
     }
+  }
+
+  /** Camera height: wheel, pinch or the +/- buttons. Everything that must stay readable is rescaled with it. */
+  private applyZoom(z: number): void {
+    this.zoom = Math.max(0.2, Math.min(1.3, z));
+    this.registry.set('zoom', this.zoom);
+    this.cameras.main.setZoom(this.zoom);
+    this.world.setLod(this.zoom < 0.55 ? 0.75 : 1);
+    const ls = Math.max(0.75, 0.95 / this.zoom);
+    for (const o of this.labels) (o as Phaser.GameObjects.Text).setScale(ls);
+    this.figK = Math.max(1, Math.min(2.6, 0.62 / this.zoom));
+    for (const f of this.figures) f.c.setScale(this.figK);
   }
 
   // --- figures ----------------------------------------------------------------------------------
   private makeFigure(id: string, x: number, y: number, label?: string): Figure {
     const sprite = this.add.sprite(0, 0, `fig-${id}`, 'down-0').setScale(FIG).setOrigin(0.5, 0.96);
     const c = this.add.container(x, y, [sprite]);
-    if (label) c.add(this.add.text(0, -(FH * FIG * 0.96) - 4, label, { fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: '#ffffff', stroke: '#1a1a2a', strokeThickness: 3 }).setOrigin(0.5, 1));
+    if (label) c.add(this.add.text(0, -(FH * FIG * 0.96) - 4, label, { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: '#ffffff', stroke: '#1a1a2a', strokeThickness: 4 }).setOrigin(0.5, 1));
     c.setDepth(12 + y / 1000);
     this.w(c);
-    return { c, sprite, id };
+    const fig = { c, sprite, id };
+    this.figures.push(fig);
+    return fig;
   }
 
   private createFriends(): void {
@@ -245,6 +275,13 @@ export class MapScene extends Phaser.Scene {
     this.u(this.add.text(W - 52, H - 80, 'Друзья', { fontFamily: FONT, fontSize: '15px', color: '#fff' }).setOrigin(0.5).setDepth(111));
     friends.on('pointerdown', () => this.scene.start('menu'));
 
+    // camera height buttons on the right edge
+    [['+', 1.25, -34], ['−', 0.8, 34]].forEach(([label, k, dy]) => {
+      const b = this.u(this.add.rectangle(W - 26, H / 2 + (dy as number), 40, 40, 0x2b3a55, 0.92).setStrokeStyle(2, 0xffffff, 0.5).setDepth(110).setInteractive({ useHandCursor: true }));
+      this.u(this.add.text(W - 26, H / 2 + (dy as number), label as string, { fontFamily: FONT, fontSize: '26px', color: '#fff' }).setOrigin(0.5).setDepth(111));
+      b.on('pointerdown', () => this.applyZoom(this.zoom * (k as number)));
+    });
+
     this.box = new DialogueBox({
       scene: this, width: W, height: H, add: this.u,
       onClose: () => {
@@ -263,6 +300,11 @@ export class MapScene extends Phaser.Scene {
       if (this.talkTarget) this.startTalk();
       else if (this.enterTarget) this.enterVenue();
     });
+    this.input.on('wheel', (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
+      if (!this.box.active) this.applyZoom(this.zoom * (dy > 0 ? 0.88 : 1.14));
+    });
+    // two-finger pinch: the joystick is dropped while it lasts
+    this.input.addPointer(1);
     this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
       if (this.box.active || over.length > 0 || this.stick.active) return;
       this.stick = { active: true, ox: p.x, oy: p.y, dx: 0, dy: 0, id: p.id };
@@ -270,6 +312,16 @@ export class MapScene extends Phaser.Scene {
       this.stickKnob.setPosition(p.x, p.y).setVisible(true);
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      const a = this.input.pointer1, b = this.input.pointer2;
+      if (a.isDown && b.isDown) {
+        const d = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
+        if (this.pinch > 0 && Math.abs(d - this.pinch) > 2) this.applyZoom(this.zoom * (d / this.pinch));
+        this.pinch = d;
+        this.stick.active = false; this.stick.dx = 0; this.stick.dy = 0;
+        this.stickBase.setVisible(false); this.stickKnob.setVisible(false);
+        return;
+      }
+      this.pinch = 0;
       if (!this.stick.active || p.id !== this.stick.id) return;
       const dx = p.x - this.stick.ox, dy = p.y - this.stick.oy;
       const len = Math.hypot(dx, dy), max = 54;
@@ -374,18 +426,18 @@ export class MapScene extends Phaser.Scene {
     this.face(vx, vy);
 
     let near: Npc | null = null;
-    let best = TALK_RANGE;
+    let best = TALK_RANGE * this.figK;
     for (const n of this.npcs) {
       if (!n.fig.c.visible) continue;
       const d = Phaser.Math.Distance.Between(this.player.c.x, this.player.c.y, n.fig.c.x, n.fig.c.y);
-      if (d < best) { best = d; near = n; }
+      if (d < best * 1) { best = d; near = n; }
     }
     this.talkTarget = near?.id ?? null;
 
     let closest = '';
     let cd = 80 * S;
     let venue: Landmark | null = null;
-    let vd = ENTER_RANGE;
+    let vd = ENTER_RANGE * this.figK;
     for (const l of this.map.landmarks) {
       const d = Phaser.Math.Distance.Between(this.player.c.x, this.player.c.y, l.pos[0] * S, l.pos[1] * S);
       if (d < cd) { cd = d; closest = l.name; }

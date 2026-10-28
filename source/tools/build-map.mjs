@@ -232,7 +232,7 @@ addLabels(rivers, true);
 const out = {
   width: r1(WIDTH), height: r1(HEIGHT), cell: CELL, gridW: GW, gridH: GH,
   blocked: Buffer.from(packed).toString('base64'),
-  buildings: buildings.map((b) => { const k = kindOf(b); return { p: flat(b.pts), k, l: levelsOf(b, k) }; }),
+  buildings: buildings.map((b) => { const k = kindOf(b); const o = { p: flat(b.pts), k, l: levelsOf(b, k) }; const n = b.t['addr:housenumber']; if (n) o.n = String(n); return o; }),
   streets,
   roads: roads.map((r) => ({ w: r.w, p: flat(r.pts) })),
   rivers: rivers.map((r) => ({ w: r.w, p: flat(r.pts) })),
