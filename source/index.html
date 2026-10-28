@@ -1,0 +1,26 @@
+﻿<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Руза</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; background: #14110f; color: #eee; font-family: system-ui, sans-serif; }
+      #game { width: 100%; height: 100%; }
+      #gate { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; background: #14110f; }
+      #gate input, #gate button { font-size: 18px; padding: 12px 16px; border-radius: 8px; border: 0; }
+      #gate p { margin: 0; color: #e88; min-height: 1.2em; }
+    </style>
+  </head>
+  <body>
+    <div id="gate">
+      <input id="pass" type="password" placeholder="Пароль" autocomplete="off" />
+      <button id="enter">Войти</button>
+      <p id="err"></p>
+    </div>
+    <div id="game"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+

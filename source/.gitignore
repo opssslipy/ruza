@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.env
+*.log
+# source photos of real people must never be committed
+refs-private/
