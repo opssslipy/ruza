@@ -1,23 +1,28 @@
 ﻿# Progress (overwritten each checkpoint)
 
-Date: 2026-10-28. Stage 0 done in draft; stage 1 started: slice 1 "map and walking".
+Date: 2026-10-28. Live: https://opssslipy.github.io/ruza/ (repo opssslipy/ruza, deploy with tools/deploy.ps1).
 
 ## Done
-- Stage 0: password gate (hash in src/config.ts), versioned save, 15 portraits (tools/make-portraits.mjs), dialogues for 8 characters (src/content/ink), friends menu. Tests 13/13, build passes.
-- Stage 1 slice 1: real map of the centre of Ruza from OpenStreetMap (data/ruza.osm.json -> tools/build-map.mjs -> public/map.json, 393 KB). 1697 buildings, 632 roads, river, collision grid, bridges open the river.
-- MapScene: walking by keyboard and floating touch joystick, wall sliding, chunked vector drawing, landmark labels, "Talk" button near friends, OSM attribution on screen.
-- Landmarks: Stas's home (Ulyanovskaya 5, way 168764127, confirmed by author), Partizan square, fountain, bus station (point only), stadium "Urozhay" (way 168915122, confirmed by author), Ruzvelt (OSM nightclub "RuzVelt Club", confirmed by author).
-- Checked in headless Edge 390x844: login, map renders, keyboard and joystick walking move the player, ~180 fps in headless (NOT a phone), no console errors, no external hosts.
+- Real map of the centre of Ruza from OpenStreetMap, walking (keyboard + touch joystick), collision, bridges, landmarks and 12 venue markers.
+- Game state (src/game/state.ts): clock (1 s = 4 game min), needs (satiety, energy, mood, health, wanted), money, midnight household cost 700 RUB, passing out, 4 endings (banka "Стаса в баньке не было", arrested, broke, week survived).
+- Venues (src/content/venues.ts): enter from the map, actions with prices, effects and time costs, friends present by schedule are tappable inside.
+- Work: Skillbox cold calls mini-game (src/content/calls.ts, 10 scenarios, 5 per round, 4 rounds a day, weekdays 10-19).
+- 8 friends with ink dialogues; each dialogue changes needs once per game day (src/content/effects.ts).
+- DRAFT schedules (src/content/schedules.ts), friends phone book screen showing where everyone is now, day/night overlay, autosave, versioned save (v2).
+- Tests 26/26. Browser checks (headless Edge 390x844) on the live URL: login, walk, shop purchase, work round, talk to Diana, night, both fail and week endings, no console errors, no external hosts.
 
 ## Not done / not verified
-- Not tried on a real phone. Performance on a weak phone unknown.
-- No street names, no named shops on the map, no interiors, no needs bars, no work/money, no day-night, no schedules, no cops conflict, no ending.
-- Friends stand in a ring around Partizan square as temporary placement (not real schedules).
+- Real phone, other browsers, slow networks, load time without VPN: NOT measured.
+- Not played through a whole week by a human; balance (prices, decay, pay) is a first guess. Needs a real playtest.
+- Missing from the original wish list: interiors are a simple room per venue (no walking, no bartender NPC); street names on the map; Diana rumour system; gangs, dealers (Belka only talks), Petya, Bezuk, Demon, Korun, Kryazh, Minyucha have no dialogues; Vegas work; car; hooking up with girls; STDs.
 - Portraits are flat drafts, not likenesses; prototypes have not approved them.
-- Nothing published.
+- Placeholders: Pyaterochka (same coords as police in the author's data), Mixbar, Teatre, Pharmacy, Garages are not real positions.
 
 ## OPEN
-- OPEN: coordinates/addresses of other venues: Mixbar, Teatre, The Dym hookah, gym, Pyaterochka, shawarma, pharmacy, hospital, police, garages.
-- OPEN: where exactly is the bus station building (OSM has only a point).
-- OPEN: ODbL: public map.json derived from OSM may need to be published under ODbL; lawyer question.
-- OPEN: prototypes approve portraits; Bara and Shatrukha photos; descriptions for Stas, Petya, Bezuk, Demon, Korun, Kryazh, Minyucha.
+- OPEN: author playtests one full week and reports balance (too easy / too hard, boring spots).
+- OPEN: author edits draft schedules to the friends' real habits.
+- OPEN: real coordinates for Pyaterochka, Mixbar, Teatre, pharmacy, garages.
+- OPEN: portraits approved by prototypes; Bara and Shatrukha photos.
+- OPEN: character descriptions for Stas, Petya, Bezuk, Demon, Korun, Kryazh, Minyucha.
+- OPEN: ODbL: map.json derived from OSM in a public repo (lawyer question).
+- OPEN: independent verification pass with clean context (reviewer agent) before calling stage 1 done.
