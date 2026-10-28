@@ -45,8 +45,9 @@ const SCHEDULES: Record<string, Slot[]> = {
     { when: 'all', from: 19, to: 22, at: 'square' },
   ],
   karina: [
-    { when: 'weekday', from: 11, to: 13, at: 'square' },
-    { when: 'weekend', from: 12, to: 17, at: 'square' },
+    { when: 'weekday', from: 10, to: 15, at: 'square' },
+    { when: 'weekday', from: 16, to: 19, at: 'pyaterochka' },
+    { when: 'weekend', from: 11, to: 19, at: 'square' },
   ],
 };
 
