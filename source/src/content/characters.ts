@@ -21,7 +21,7 @@ export const CHARACTERS: Character[] = [
   { id: 'lev', portrait: 'portraits/lev.svg', name: 'Лев', color: 0x4a7bd1, ink: levInk },
   { id: 'timur', portrait: 'portraits/timur.svg', name: 'Тимур', color: 0x6b7a5e, ink: timurInk },
   { id: 'diana', portrait: 'portraits/diana.svg', name: 'Диана', color: 0xd16a9a, ink: dianaInk },
-  { id: 'anyaartem', portrait: 'portraits/anyaartem.svg', name: 'АняАртем', color: 0x888888, ink: anyaartemInk },
+  { id: 'anyaartem', portrait: 'portraits/anyaartem.svg', name: 'Артем', color: 0x888888, ink: anyaartemInk },
   { id: 'belka', portrait: 'portraits/belka.svg', name: 'Белка', color: 0x8a5a3a, ink: belkaInk },
   { id: 'karina', portrait: 'portraits/karina.svg', name: 'Карина', color: 0x6a3fa0, ink: karinaInk },
   { id: 'stas', name: 'Стас', portrait: 'portraits/stas.svg', color: 0x546a8a },

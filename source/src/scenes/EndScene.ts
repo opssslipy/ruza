@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { fitColumn } from '../game/layout';
 import { FONT, GAME_HEIGHT, GAME_WIDTH } from '../config';
 import { endingText } from '../game/state';
 import { getState, persist, restart } from '../game/store';
@@ -9,6 +10,7 @@ export class EndScene extends Phaser.Scene {
   }
 
   create(): void {
+    fitColumn(this);
     const s = getState();
     persist();
     const { title, text } = endingText(s.ended ?? 'week', s);

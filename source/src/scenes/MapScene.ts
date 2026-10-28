@@ -2,37 +2,38 @@ import Phaser from 'phaser';
 import { CHARACTERS } from '../content/characters';
 import { whereIs } from '../content/schedules';
 import { venueById } from '../content/venues';
-import { FONT, GAME_HEIGHT, GAME_WIDTH } from '../config';
+import { FONT } from '../config';
 import { advance, isWeekday, MAX_WORK_ROUNDS, type GameState } from '../game/state';
 import { createHud } from '../game/hud';
+import { DialogueBox } from '../game/dialogueBox';
+import { S, type Landmark, type MapData } from '../game/mapData';
+import { ensureSprites, FH } from '../game/sprites';
 import { getState, persist } from '../game/store';
+import { WorldRenderer } from '../game/worldRender';
 
-// 1 metre of the real map = S pixels. Characters are drawn oversized on purpose so they stay readable on a phone.
-const S = 3;
-const CHUNK = 900;
-const SPEED = 110;
-const TALK_RANGE = 46;
-const ENTER_RANGE = 70;
+const SPEED = 118;
+const TALK_RANGE = 52;
+const ENTER_RANGE = 74;
 const GAME_MINUTES_PER_SECOND = 4;
+const FIG = 0.8; // displayed size of a figure relative to its 72x104 frame
 
-interface Line { w: number; p: number[] }
-interface Landmark { id: string; name: string; pos: [number, number]; kind?: string }
-interface MapData {
-  width: number; height: number; cell: number; gridW: number; gridH: number; blocked: string;
-  buildings: number[][]; roads: Line[]; rivers: Line[]; waters: number[][]; greens: number[][]; pitches: number[][];
-  landmarks: Landmark[];
-}
-interface Chunk { g: Phaser.GameObjects.Graphics; x0: number; y0: number }
-interface Npc { id: string; name: string; sprite: Phaser.GameObjects.Container; index: number }
+type Dir = 'down' | 'up' | 'left' | 'right';
+interface Figure { c: Phaser.GameObjects.Container; sprite: Phaser.GameObjects.Sprite; id: string }
+interface Npc { id: string; name: string; fig: Figure; index: number }
 
 export class MapScene extends Phaser.Scene {
   private map!: MapData;
   private bits!: Uint8Array;
-  private chunks: Chunk[] = [];
-  private player!: Phaser.GameObjects.Container;
-  private npcs: Npc[] = [];
   private state!: GameState;
+  private worldLayer!: Phaser.GameObjects.Layer;
+  private uiLayer!: Phaser.GameObjects.Layer;
+  private uiCam!: Phaser.Cameras.Scene2D.Camera;
+  private world!: WorldRenderer;
+  private player!: Figure;
+  private facing: Dir = 'down';
+  private npcs: Npc[] = [];
   private hud!: { update: () => void };
+  private box!: DialogueBox;
   private keys!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
   private stick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, id: -1 };
@@ -51,6 +52,9 @@ export class MapScene extends Phaser.Scene {
   private clockAcc = 0;
   private saveAcc = 0;
   private lastPlacement = -1;
+  private zoom = 1;
+  private resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingResize = false;
 
   constructor() {
     super('map');
@@ -63,124 +67,108 @@ export class MapScene extends Phaser.Scene {
     });
   }
 
+  private w = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.worldLayer.add(o); return o; };
+  private u = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.uiLayer.add(o); return o; };
+
   create(): void {
     this.state = getState();
     this.map = this.cache.json.get('map') as MapData;
     this.bits = Uint8Array.from(atob(this.map.blocked), (c) => c.charCodeAt(0));
-    this.cameras.main.setBackgroundColor('#3b4d36');
-    this.chunks = [];
     this.npcs = [];
     this.lastPlacement = -1;
-    this.drawWorld();
+    this.clockAcc = 0;
+    ensureSprites(this);
+
+    const W = this.scale.width, H = this.scale.height;
+    this.worldLayer = this.add.layer();
+    this.uiLayer = this.add.layer();
+    this.zoom = Math.max(0.75, Math.min(W, H) / 480);
+    const cam = this.cameras.main;
+    cam.setZoom(this.zoom).setBackgroundColor('#dde4c6').ignore(this.uiLayer);
+    this.uiCam = this.cameras.add(0, 0, W, H);
+    this.uiCam.ignore(this.worldLayer);
+
+    this.world = new WorldRenderer(this, this.map, this.worldLayer);
+    this.drawLabels();
 
     const home = this.landmark('home');
     const saved = this.registry.get('mapPos') as { x: number; y: number } | undefined;
     const start = saved ?? this.nearestFree(home.pos[0] * S, home.pos[1] * S);
-    this.player = this.makeToken('stas', start.x, start.y, 0xffd24a);
-    this.player.setDepth(20);
-    this.cameras.main.setBounds(0, 0, this.map.width * S, this.map.height * S);
-    this.cameras.main.startFollow(this.player, true, 0.15, 0.15);
+    this.player = this.makeFigure('stas', start.x, start.y);
+    cam.setBounds(0, 0, this.map.width * S, this.map.height * S);
+    cam.startFollow(this.player.c, true, 0.15, 0.15);
+    cam.centerOn(start.x, start.y);
+    this.world.update(new Phaser.Geom.Rectangle(start.x - W / (2 * this.zoom), start.y - H / (2 * this.zoom), W / this.zoom, H / this.zoom), 0, true);
 
     this.createFriends();
-    this.buildHud();
+    this.buildUi(W, H);
     this.setupInput();
     this.placeFriends();
+
+    const onResize = (): void => {
+      if (this.resizeTimer) clearTimeout(this.resizeTimer);
+      this.resizeTimer = setTimeout(() => (this.box.active ? (this.pendingResize = true) : this.scene.restart()), 250);
+    };
+    this.scale.on('resize', onResize);
+    this.events.once('shutdown', () => {
+      this.scale.off('resize', onResize);
+      if (this.resizeTimer) clearTimeout(this.resizeTimer);
+      this.registry.set('mapPos', { x: this.player.c.x, y: this.player.c.y });
+      persist();
+    });
 
     if (new URLSearchParams(location.search).has('debug')) {
       // test hook for automated checks only; reachable with ?debug in the URL
       Object.assign(window, {
         __ruza: {
           state: this.state,
-          teleport: (id: string) => { const l = this.landmark(id); const p = this.nearestFree(l.pos[0] * S, l.pos[1] * S); this.player.setPosition(p.x, p.y); },
-          scene: () => this.scene.key,
+          teleport: (id: string) => { const l = this.landmark(id); const p = this.nearestFree(l.pos[0] * S, l.pos[1] * S); this.player.c.setPosition(p.x, p.y); },
+          talk: (id: string) => this.box.open(id),
+          view: () => ({ w: this.scale.width, h: this.scale.height, zoom: this.zoom }),
         },
       });
     }
-    this.events.once('shutdown', () => {
-      this.registry.set('mapPos', { x: this.player.x, y: this.player.y });
-      persist();
-    });
   }
 
-  // --- world drawing --------------------------------------------------------------------------
+  // --- world labels ---------------------------------------------------------------------------
   private landmark(id: string): Landmark {
     const l = this.map.landmarks.find((m) => m.id === id);
     if (!l) throw new Error(`landmark ${id} missing from map.json`);
     return l;
   }
 
-  private drawWorld(): void {
-    const cols = Math.ceil((this.map.width * S) / CHUNK), rows = Math.ceil((this.map.height * S) / CHUNK);
-    for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) {
-      const g = this.add.graphics().setDepth(0);
-      this.chunks.push({ g, x0: cx * CHUNK, y0: cy * CHUNK });
+  private drawLabels(): void {
+    for (const s of this.map.streets) {
+      const t = this.add.text(s.x * S, s.y * S, s.n, { fontFamily: FONT, fontSize: s.big ? '14px' : '12px', color: s.r ? '#2f6fa0' : '#3d4350', stroke: '#f6f6ee', strokeThickness: 3, fontStyle: s.r ? 'italic' : 'normal' });
+      this.w(t.setOrigin(0.5).setRotation(s.a).setDepth(3));
     }
-    const inView = (c: Chunk, pts: number[]): boolean => {
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (let i = 0; i < pts.length; i += 2) {
-        const x = (pts[i] as number) * S, y = (pts[i + 1] as number) * S;
-        minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-      }
-      return maxX >= c.x0 - 40 && minX <= c.x0 + CHUNK + 40 && maxY >= c.y0 - 40 && minY <= c.y0 + CHUNK + 40;
-    };
-    const eachChunk = (pts: number[], draw: (g: Phaser.GameObjects.Graphics) => void): void => {
-      for (const c of this.chunks) if (inView(c, pts)) draw(c.g);
-    };
-    const poly = (pts: number[]): Phaser.Math.Vector2[] => {
-      const out: Phaser.Math.Vector2[] = [];
-      for (let i = 0; i < pts.length; i += 2) out.push(new Phaser.Math.Vector2((pts[i] as number) * S, (pts[i + 1] as number) * S));
-      return out;
-    };
-    const stroke = (line: Line, color: number, extra: number): void => {
-      eachChunk(line.p, (g) => {
-        g.lineStyle(line.w * S + extra, color, 1);
-        g.beginPath();
-        for (let i = 0; i < line.p.length; i += 2) {
-          const x = (line.p[i] as number) * S, y = (line.p[i + 1] as number) * S;
-          if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
-        }
-        g.strokePath();
-      });
-    };
-
-    for (const p of this.map.greens) eachChunk(p, (g) => { g.fillStyle(0x4c7a40, 1); g.fillPoints(poly(p), true); });
-    for (const p of this.map.pitches) eachChunk(p, (g) => { g.fillStyle(0x5d9a4c, 1); g.fillPoints(poly(p), true); });
-    for (const p of this.map.waters) eachChunk(p, (g) => { g.fillStyle(0x2f5f8c, 1); g.fillPoints(poly(p), true); });
-    for (const r of this.map.rivers) stroke(r, 0x2f5f8c, 0);
-    for (const r of this.map.roads) stroke(r, 0x4b4b52, 4);
-    for (const r of this.map.roads) stroke(r, 0x8d8d94, 0);
-    for (const p of this.map.buildings) {
-      eachChunk(p, (g) => {
-        const pts = poly(p);
-        g.fillStyle(0xb69b80, 1); g.fillPoints(pts, true);
-        g.lineStyle(2, 0x6d5a48, 1); g.strokePoints(pts, true);
-      });
-    }
-
-    const labelStyle = { fontFamily: FONT, fontSize: '15px', color: '#ffffff', stroke: '#000000', strokeThickness: 4 };
     for (const l of this.map.landmarks) {
       const isHome = l.id === 'home';
       const isVenue = l.kind === 'venue';
-      if (isVenue) this.add.circle(l.pos[0] * S, l.pos[1] * S, 7, 0x4aa3ff).setStrokeStyle(2, 0xffffff).setDepth(9);
-      this.add.text(l.pos[0] * S, l.pos[1] * S - (isHome ? 34 : isVenue ? 20 : 10), isHome ? `⌂ ${l.name}` : l.name, { ...labelStyle, fontSize: isHome ? '17px' : '15px', color: isHome ? '#ffd24a' : isVenue ? '#9fd2ff' : '#ffffff' }).setOrigin(0.5).setDepth(10);
+      if (isVenue || isHome) this.w(this.add.circle(l.pos[0] * S, l.pos[1] * S, 8, isHome ? 0xffb020 : 0x2f7de1).setStrokeStyle(3, 0xffffff).setDepth(9));
+      const t = this.add.text(l.pos[0] * S, l.pos[1] * S - (isHome || isVenue ? 24 : 10), isHome ? `⌂ ${l.name}` : l.name, {
+        fontFamily: FONT, fontSize: isHome ? '17px' : '15px', fontStyle: 'bold', color: isHome ? '#8a4b00' : isVenue ? '#1d4e89' : '#2f3b2f', stroke: '#ffffff', strokeThickness: 4,
+      });
+      this.w(t.setOrigin(0.5).setDepth(10));
     }
   }
 
-  // --- characters ------------------------------------------------------------------------------
-  private makeToken(id: string, x: number, y: number, ring: number): Phaser.GameObjects.Container {
-    const c = this.add.container(x, y);
-    c.add(this.add.circle(0, 0, 17, ring));
-    const key = `portrait-${id}`;
-    if (this.textures.exists(key)) c.add(this.add.image(0, 0, key).setDisplaySize(28, 28));
-    else c.add(this.add.text(0, 0, id.charAt(0).toUpperCase(), { fontFamily: FONT, fontSize: '16px', color: '#fff' }).setOrigin(0.5));
-    return c;
+  // --- figures ----------------------------------------------------------------------------------
+  private makeFigure(id: string, x: number, y: number, label?: string): Figure {
+    const sprite = this.add.sprite(0, 0, `fig-${id}`, 'down-0').setScale(FIG).setOrigin(0.5, 0.96);
+    const c = this.add.container(x, y, [sprite]);
+    if (label) c.add(this.add.text(0, -(FH * FIG * 0.96) - 4, label, { fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: '#ffffff', stroke: '#1a1a2a', strokeThickness: 3 }).setOrigin(0.5, 1));
+    c.setDepth(12 + y / 1000);
+    this.w(c);
+    return { c, sprite, id };
   }
 
   private createFriends(): void {
     CHARACTERS.filter((c) => c.ink).forEach((ch, i) => {
-      const token = this.makeToken(ch.id, 0, 0, ch.color).setDepth(15).setVisible(false);
-      token.add(this.add.text(0, 24, ch.name, { fontFamily: FONT, fontSize: '11px', color: '#fff', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5));
-      this.npcs.push({ id: ch.id, name: ch.name, sprite: token, index: i });
+      const fig = this.makeFigure(ch.id, 0, 0, ch.name);
+      fig.c.setVisible(false);
+      this.tweens.add({ targets: fig.sprite, y: -1.5, duration: 700 + i * 60, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      this.npcs.push({ id: ch.id, name: ch.name, fig, index: i });
     });
   }
 
@@ -192,10 +180,11 @@ export class MapScene extends Phaser.Scene {
     for (const n of this.npcs) {
       const at = whereIs(n.id, this.state);
       const l = at ? this.map.landmarks.find((m) => m.id === at) : undefined;
-      if (!l) { n.sprite.setVisible(false); continue; }
-      const a = n.index * 1.3;
-      const spot = this.nearestFree(l.pos[0] * S + Math.cos(a) * 46, l.pos[1] * S + Math.sin(a) * 46);
-      n.sprite.setPosition(spot.x, spot.y).setVisible(true);
+      if (!l) { n.fig.c.setVisible(false); continue; }
+      const a = n.index * 2.1;
+      const rad = 60 + (n.index % 3) * 26;
+      const spot = this.nearestFree(l.pos[0] * S + Math.cos(a) * rad, l.pos[1] * S + Math.sin(a) * rad);
+      n.fig.c.setPosition(spot.x, spot.y).setVisible(true).setDepth(12 + spot.y / 1000);
     }
   }
 
@@ -223,44 +212,59 @@ export class MapScene extends Phaser.Scene {
     return { x: px, y: py };
   }
 
-  // --- HUD and input -------------------------------------------------------------------------------
-  private button(y: number, color: number): { box: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; c: Phaser.GameObjects.Container } {
-    // children of a screen-pinned container need their own scrollFactor 0, otherwise Phaser hit-tests them at the scrolled position and taps miss
-    const box = this.add.rectangle(0, 0, GAME_WIDTH - 60, 50, color).setScrollFactor(0).setInteractive({ useHandCursor: true });
-    const label = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '18px', color: '#fff' }).setOrigin(0.5).setScrollFactor(0);
-    const c = this.add.container(GAME_WIDTH / 2, y, [box, label]).setScrollFactor(0).setDepth(110).setVisible(false);
+  // --- UI ------------------------------------------------------------------------------------------
+  private button(W: number, y: number, color: number): { box: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; c: Phaser.GameObjects.Container } {
+    const bw = Math.min(W - 60, 420);
+    const box = this.add.rectangle(0, 0, bw, 50, color).setStrokeStyle(2, 0xffffff, 0.6).setInteractive({ useHandCursor: true });
+    const label = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '18px', color: '#fff' }).setOrigin(0.5);
+    const c = this.add.container(W / 2, y, [box, label]).setDepth(110).setVisible(false);
+    this.u(c);
     return { box, label, c };
   }
 
-  private buildHud(): void {
-    this.hud = createHud(this, this.state);
-    this.place = this.add.text(GAME_WIDTH / 2, 70, '', { fontFamily: FONT, fontSize: '16px', color: '#ffffff', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100);
-    this.hint = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 38, '', { fontFamily: FONT, fontSize: '13px', color: '#ffe08a', stroke: '#000', strokeThickness: 3, align: 'center', wordWrap: { width: GAME_WIDTH - 20 } }).setOrigin(0.5).setScrollFactor(0).setDepth(100);
-    this.add.text(8, GAME_HEIGHT - 14, '© OpenStreetMap contributors', { fontFamily: FONT, fontSize: '10px', color: '#dddddd', stroke: '#000', strokeThickness: 3 }).setOrigin(0, 1).setScrollFactor(0).setDepth(100);
-    this.toast = this.add.text(GAME_WIDTH / 2, 120, '', { fontFamily: FONT, fontSize: '15px', color: '#fff', backgroundColor: '#000000aa', padding: { x: 10, y: 6 }, align: 'center', wordWrap: { width: GAME_WIDTH - 40 } }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(120).setVisible(false);
-    this.night = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x0a1030, 0).setScrollFactor(0).setDepth(90);
+  private buildUi(W: number, H: number): void {
+    this.hud = createHud(this, this.state, { width: W, add: this.u });
+    this.place = this.u(this.add.text(W / 2, 70, '', { fontFamily: FONT, fontSize: '16px', fontStyle: 'bold', color: '#ffffff', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(100));
+    this.hint = this.u(this.add.text(W / 2, H - 38, '', { fontFamily: FONT, fontSize: '13px', color: '#ffe08a', stroke: '#000', strokeThickness: 3, align: 'center', wordWrap: { width: W - 20 } }).setOrigin(0.5).setDepth(100));
+    this.u(this.add.text(8, H - 14, '© OpenStreetMap contributors', { fontFamily: FONT, fontSize: '10px', color: '#ffffff', stroke: '#000', strokeThickness: 3 }).setOrigin(0, 1).setDepth(100));
+    this.toast = this.u(this.add.text(W / 2, 120, '', { fontFamily: FONT, fontSize: '15px', color: '#fff', backgroundColor: '#000000cc', padding: { x: 10, y: 6 }, align: 'center', wordWrap: { width: Math.min(W - 40, 520) } }).setOrigin(0.5, 0).setDepth(120).setVisible(false));
+    // night tint lives in the world (under the lit windows); it follows the camera every frame
+    this.night = this.w(this.add.rectangle(0, 0, 10, 10, 0x0b1233, 0).setOrigin(0, 0).setDepth(80));
 
-    this.stickBase = this.add.circle(0, 0, 54, 0xffffff, 0.15).setScrollFactor(0).setDepth(105).setVisible(false);
-    this.stickKnob = this.add.circle(0, 0, 26, 0xffffff, 0.45).setScrollFactor(0).setDepth(106).setVisible(false);
+    this.stickBase = this.u(this.add.circle(0, 0, 54, 0xffffff, 0.2).setDepth(105).setVisible(false));
+    this.stickKnob = this.u(this.add.circle(0, 0, 26, 0xffffff, 0.5).setDepth(106).setVisible(false));
 
-    const talk = this.button(GAME_HEIGHT - 130, 0x2b3a55);
+    const talk = this.button(W, H - 130, 0x2b3a55);
     this.talkBtn = talk.c; this.talkLabel = talk.label;
     talk.box.on('pointerdown', () => this.startTalk());
-    const enter = this.button(GAME_HEIGHT - 190, 0x2b6a3a);
+    const enter = this.button(W, H - 190, 0x2b6a3a);
     this.enterBtn = enter.c; this.enterLabel = enter.label;
     enter.box.on('pointerdown', () => this.enterVenue());
 
-    const friends = this.add.rectangle(GAME_WIDTH - 50, GAME_HEIGHT - 80, 86, 34, 0x2b3a55, 0.9).setScrollFactor(0).setDepth(110).setInteractive({ useHandCursor: true });
-    this.add.text(GAME_WIDTH - 50, GAME_HEIGHT - 80, 'Друзья', { fontFamily: FONT, fontSize: '15px', color: '#fff' }).setOrigin(0.5).setScrollFactor(0).setDepth(111);
+    const friends = this.u(this.add.rectangle(W - 52, H - 80, 90, 34, 0x2b3a55, 0.92).setStrokeStyle(2, 0xffffff, 0.5).setDepth(110).setInteractive({ useHandCursor: true }));
+    this.u(this.add.text(W - 52, H - 80, 'Друзья', { fontFamily: FONT, fontSize: '15px', color: '#fff' }).setOrigin(0.5).setDepth(111));
     friends.on('pointerdown', () => this.scene.start('menu'));
+
+    this.box = new DialogueBox({
+      scene: this, width: W, height: H, add: this.u,
+      onClose: () => {
+        this.hud.update();
+        if (this.pendingResize) { this.pendingResize = false; this.scene.restart(); }
+      },
+    });
   }
 
   private setupInput(): void {
-    this.keys = this.input.keyboard!.createCursorKeys();
-    this.wasd = this.input.keyboard!.addKeys('W,A,S,D') as Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
-    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      const onButtons = p.y > GAME_HEIGHT - 215 && p.y < GAME_HEIGHT - 60 && (this.talkBtn.visible || this.enterBtn.visible);
-      if (this.stick.active || onButtons || (p.y > GAME_HEIGHT - 100 && p.x > GAME_WIDTH - 100)) return;
+    const kb = this.input.keyboard!;
+    this.keys = kb.createCursorKeys();
+    this.wasd = kb.addKeys('W,A,S,D') as Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
+    kb.on('keydown-E', () => {
+      if (this.box.active) return;
+      if (this.talkTarget) this.startTalk();
+      else if (this.enterTarget) this.enterVenue();
+    });
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
+      if (this.box.active || over.length > 0 || this.stick.active) return;
       this.stick = { active: true, ox: p.x, oy: p.y, dx: 0, dy: 0, id: p.id };
       this.stickBase.setPosition(p.x, p.y).setVisible(true);
       this.stickKnob.setPosition(p.x, p.y).setVisible(true);
@@ -284,12 +288,15 @@ export class MapScene extends Phaser.Scene {
   }
 
   private startTalk(): void {
-    if (!this.talkTarget) return;
-    this.scene.start('dialogue', { characterId: this.talkTarget, returnTo: 'map' });
+    if (!this.talkTarget || this.box.active) return;
+    this.stick.active = false; this.stick.dx = 0; this.stick.dy = 0;
+    this.stickBase.setVisible(false); this.stickKnob.setVisible(false);
+    this.box.open(this.talkTarget);
   }
 
   private enterVenue(): void {
-    if (!this.enterTarget) return;
+    if (!this.enterTarget || this.box.active) return;
+    this.registry.set('mapPos', { x: this.player.c.x, y: this.player.c.y });
     this.scene.start('venue', { venueId: this.enterTarget });
   }
 
@@ -311,74 +318,87 @@ export class MapScene extends Phaser.Scene {
 
   private nightAlpha(): number {
     const h = this.state.minutes / 60;
-    if (h < 5) return 0.6;
-    if (h < 7) return 0.6 * (1 - (h - 5) / 2);
+    if (h < 5) return 0.62;
+    if (h < 7) return 0.62 * (1 - (h - 5) / 2);
     if (h < 18) return 0;
     if (h < 21) return 0.45 * ((h - 18) / 3);
-    return 0.45 + 0.15 * ((h - 21) / 3);
+    return 0.45 + 0.17 * ((h - 21) / 3);
+  }
+
+  private face(vx: number, vy: number): void {
+    if (Math.abs(vx) < 0.05 && Math.abs(vy) < 0.05) { this.player.sprite.stop(); this.player.sprite.setFrame(`${this.facing === 'right' ? 'left' : this.facing}-0`); return; }
+    this.facing = Math.abs(vx) > Math.abs(vy) ? (vx < 0 ? 'left' : 'right') : vy < 0 ? 'up' : 'down';
+    const anim = this.facing === 'right' ? 'left' : this.facing;
+    this.player.sprite.setFlipX(this.facing === 'right');
+    this.player.sprite.play(`stas-${anim}`, true);
   }
 
   override update(_t: number, dtMs: number): void {
-    const dt = dtMs / 1000;
+    const dt = Math.min(dtMs, 100) / 1000;
+    const cam = this.cameras.main;
+    const view = cam.worldView;
 
-    // clock: one real second is four game minutes
-    this.clockAcc += dt * GAME_MINUTES_PER_SECOND;
-    while (this.clockAcc >= 1 && !this.state.ended) {
-      this.clockAcc -= 1;
-      this.showToast(advance(this.state, 1));
+    if (!this.box.active) {
+      // clock: one real second is four game minutes (paused while talking)
+      this.clockAcc += dt * GAME_MINUTES_PER_SECOND;
+      while (this.clockAcc >= 1 && !this.state.ended) {
+        this.clockAcc -= 1;
+        this.showToast(advance(this.state, 1));
+      }
+      if (this.state.ended) { persist(); this.scene.start('end'); return; }
+      this.saveAcc += dt;
+      if (this.saveAcc > 5) { this.saveAcc = 0; persist(); }
     }
-    if (this.state.ended) {
-      persist();
-      this.scene.start('end');
-      return;
-    }
-    this.saveAcc += dt;
-    if (this.saveAcc > 5) { this.saveAcc = 0; persist(); }
     this.hud.update();
     this.placeFriends();
-    this.night.setFillStyle(0x0a1030, this.nightAlpha());
-    this.hint.setText(this.objective());
+    const na = this.nightAlpha();
+    this.night.setPosition(view.x - 4, view.y - 4).setSize(view.width + 8, view.height + 8).setFillStyle(0x0b1233, na);
+    this.world.update(view, Math.max(0, Math.min(1, (na - 0.1) / 0.4)));
+    this.hint.setText(this.box.active ? '' : this.objective());
 
-    let vx = this.stick.dx, vy = this.stick.dy;
-    if (this.keys.left.isDown || this.wasd.A.isDown) vx -= 1;
-    if (this.keys.right.isDown || this.wasd.D.isDown) vx += 1;
-    if (this.keys.up.isDown || this.wasd.W.isDown) vy -= 1;
-    if (this.keys.down.isDown || this.wasd.S.isDown) vy += 1;
-    const len = Math.hypot(vx, vy);
-    if (len > 1) { vx /= len; vy /= len; }
-    // axes are tested separately so the player slides along walls instead of sticking
-    const nx = this.player.x + vx * SPEED * dt, ny = this.player.y + vy * SPEED * dt;
-    if (!this.blockedBody(nx, this.player.y)) this.player.x = nx;
-    if (!this.blockedBody(this.player.x, ny)) this.player.y = ny;
-
-    const view = this.cameras.main.worldView;
-    for (const c of this.chunks) {
-      c.g.setVisible(c.x0 + CHUNK >= view.x - 20 && c.x0 <= view.right + 20 && c.y0 + CHUNK >= view.y - 20 && c.y0 <= view.bottom + 20);
+    let vx = 0, vy = 0;
+    if (!this.box.active) {
+      vx = this.stick.dx; vy = this.stick.dy;
+      if (this.keys.left.isDown || this.wasd.A.isDown) vx -= 1;
+      if (this.keys.right.isDown || this.wasd.D.isDown) vx += 1;
+      if (this.keys.up.isDown || this.wasd.W.isDown) vy -= 1;
+      if (this.keys.down.isDown || this.wasd.S.isDown) vy += 1;
+      const len = Math.hypot(vx, vy);
+      if (len > 1) { vx /= len; vy /= len; }
+      // axes are tested separately so the player slides along walls instead of sticking
+      const nx = this.player.c.x + vx * SPEED * dt, ny = this.player.c.y + vy * SPEED * dt;
+      if (!this.blockedBody(nx, this.player.c.y)) this.player.c.x = nx;
+      if (!this.blockedBody(this.player.c.x, ny)) this.player.c.y = ny;
+      this.player.c.setDepth(12 + this.player.c.y / 1000 + 0.0005);
     }
+    this.face(vx, vy);
 
     let near: Npc | null = null;
     let best = TALK_RANGE;
     for (const n of this.npcs) {
-      if (!n.sprite.visible) continue;
-      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, n.sprite.x, n.sprite.y);
+      if (!n.fig.c.visible) continue;
+      const d = Phaser.Math.Distance.Between(this.player.c.x, this.player.c.y, n.fig.c.x, n.fig.c.y);
       if (d < best) { best = d; near = n; }
     }
     this.talkTarget = near?.id ?? null;
-    this.talkBtn.setVisible(!!near);
-    if (near) this.talkLabel.setText(`Поговорить: ${near.name}`);
 
     let closest = '';
     let cd = 80 * S;
     let venue: Landmark | null = null;
     let vd = ENTER_RANGE;
     for (const l of this.map.landmarks) {
-      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, l.pos[0] * S, l.pos[1] * S);
+      const d = Phaser.Math.Distance.Between(this.player.c.x, this.player.c.y, l.pos[0] * S, l.pos[1] * S);
       if (d < cd) { cd = d; closest = l.name; }
       if (d < vd && venueById(l.id)) { vd = d; venue = l; }
     }
     this.place.setText(closest);
     this.enterTarget = venue?.id ?? null;
-    this.enterBtn.setVisible(!!venue);
-    if (venue) this.enterLabel.setText(`Зайти: ${venue.name}`);
+
+    const showKeys = !this.sys.game.device.input.touch;
+    this.talkBtn.setVisible(!!near && !this.box.active);
+    this.enterBtn.setVisible(!!venue && !this.box.active);
+    if (near) this.talkLabel.setText(`Поговорить: ${near.name}${showKeys ? '   [E]' : ''}`);
+    if (venue) this.enterLabel.setText(`Зайти: ${venue.name}${near ? '' : showKeys ? '   [E]' : ''}`);
+
   }
 }

@@ -2,6 +2,7 @@
 import { CHARACTERS } from '../content/characters';
 import { whereIs } from '../content/schedules';
 import { venueById } from '../content/venues';
+import { fitColumn } from '../game/layout';
 import { FONT, GAME_WIDTH } from '../config';
 import { clockText } from '../game/state';
 import { getState } from '../game/store';
@@ -25,6 +26,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create(): void {
+    fitColumn(this);
     const s = getState();
     this.add.text(GAME_WIDTH / 2, 40, 'Друзья', { fontFamily: FONT, fontSize: '34px', color: '#ffffff' }).setOrigin(0.5);
     this.add.text(GAME_WIDTH / 2, 80, `Где кто сейчас · ${clockText(s)}`, { fontFamily: FONT, fontSize: '16px', color: '#aaaaaa' }).setOrigin(0.5);

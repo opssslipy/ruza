@@ -42,7 +42,7 @@ if (Get-ChildItem $repo -Recurse -Directory -Filter refs-private -ErrorAction Si
 & $git -C $repo add -A
 $pending = & $git -C $repo status --porcelain
 if (-not $pending) { 'Nothing to commit.'; return }
-& $git -C $repo commit -m $Message | Out-Host
+& $git -C $repo commit -m $Message -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>" | Out-Host
 & $git -C $repo push | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'PUSH FAILED: the commit exists only locally in the repo clone. Check the GitHub token permissions.' }
 'Pushed. Site: https://opssslipy.github.io/ruza/ (Pages needs 1-2 minutes to rebuild)'

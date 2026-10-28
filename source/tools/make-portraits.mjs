@@ -2,40 +2,17 @@
 // Characters without photos get generic stand-ins; characters with photos get a stylisation built from the
 // recorded features (hair, beard, glasses, mood). None of these is a likeness, they are drafts for the prototypes to approve.
 // Usage: node tools/make-portraits.mjs  (writes into public/portraits)
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const outDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'portraits');
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const outDir = join(root, 'public', 'portraits');
 mkdirSync(outDir, { recursive: true });
 
 // hair: buzz | short | long | bald | cap | receding ; bun: top knot ; extra: beard | stubble | glasses | sunglasses | none
 // mouth: smile | grin | flat | smirk | frown ; lips: lipstick colour ; eye: iris colour ; ears: normal | big
-const people = [
-  // generic stand-ins (no photo)
-  { id: 'stas', bg: '#2f3b52', skin: '#e8b996', hair: 'short', hairColor: '#4a3426', extra: 'stubble', top: '#546a8a', mouth: 'smirk' },
-  { id: 'demon', bg: '#3a2424', skin: '#d9a07e', hair: 'buzz', hairColor: '#1d1612', extra: 'beard', top: '#161616', mouth: 'flat' },
-  { id: 'korun', bg: '#2b2f24', skin: '#cf9570', hair: 'short', hairColor: '#201813', extra: 'stubble', top: '#3f4a2e', mouth: 'smirk' },
-  { id: 'bara', bg: '#1f2d44', skin: '#e4b08e', hair: 'cap', hairColor: '#1b2a46', extra: 'stubble', top: '#2c4a7a', mouth: 'flat' },
-  { id: 'bezuk', bg: '#24303f', skin: '#dba583', hair: 'short', hairColor: '#2b2b2b', extra: 'glasses', top: '#3b5278', mouth: 'flat' },
-  { id: 'petya', bg: '#3b2a1e', skin: '#e0a98a', hair: 'bald', hairColor: '#000000', extra: 'none', top: '#6b4a2f', mouth: 'smile' },
-  { id: 'kryazh', bg: '#2a2a2a', skin: '#d19c7a', hair: 'cap', hairColor: '#3a3a3a', extra: 'beard', top: '#5a5a5a', mouth: 'smirk' },
-  { id: 'shatruha', bg: '#3d2b3d', skin: '#f0c7a8', hair: 'long', hairColor: '#7a4a2a', extra: 'none', top: '#8a4f78', mouth: 'smile' },
-  { id: 'minyucha', bg: '#2b3d3a', skin: '#efc3a3', hair: 'long', hairColor: '#2a1d16', extra: 'glasses', top: '#3f7a70', mouth: 'smirk' },
-  // stylised from recorded photo features
-  // Lev: buzz cut, light brown hair, clean-shaven, prominent ears; photo is serious, drawn with a half-smile because he is the joker
-  { id: 'lev', bg: '#28364d', skin: '#efc5a6', hair: 'buzz', hairColor: '#9a7440', extra: 'none', top: '#222831', mouth: 'smirk', eye: '#7fa6c9', ears: 'big' },
-  // Timur: buzzed reddish hair, ginger stubble, calm direct gaze
-  { id: 'timur', bg: '#3a2d24', skin: '#f0c4a4', hair: 'buzz', hairColor: '#b8602f', extra: 'stubble', top: '#1d1d22', mouth: 'smirk', eye: '#8db0c8' },
-  // Diana: long blonde hair with dark roots and a top knot, pink eyeshadow, nude lips
-  { id: 'diana', bg: '#3c2a35', skin: '#f2cdb0', hair: 'long', hairColor: '#d9b878', bun: true, extra: 'none', top: '#c85f8f', mouth: 'smile', eye: '#7fb0d0', lips: '#d49a8c', shadow: '#e8837f' },
-  // AnyaArtem: short hair, round dark glasses, scowl, light blue hoodie collar
-  { id: 'anyaartem', bg: '#33363a', skin: '#f0c9ae', hair: 'short', hairColor: '#8a6a48', extra: 'sunglasses', top: '#9fb8d8', mouth: 'frown' },
-  // Belka: receding dark hair, full dark beard, wide grin, thin chain
-  { id: 'belka', bg: '#3a2b1f', skin: '#d9a982', hair: 'receding', hairColor: '#3a2a20', extra: 'beard', top: '#c99a7a', mouth: 'grin', chain: true },
-  // Karina: long straight black hair with centre part, green eyes, nude lips
-  { id: 'karina', bg: '#2e2640', skin: '#e6b895', hair: 'long', hairColor: '#14141a', extra: 'none', top: '#8a6fc0', mouth: 'smile', eye: '#6fa070', lips: '#d49a8c' },
-];
+  const people = JSON.parse(readFileSync(join(root, 'src', 'content', 'looks.json'), 'utf8'));
 
 function hairBack(p) {
   if (p.hair === 'long') return `<path d="M72 120 Q60 215 82 236 L158 236 Q180 215 168 120 Z" fill="${p.hairColor}"/>`;
@@ -122,5 +99,6 @@ ${mouth(p)}
 
 for (const p of people) writeFileSync(join(outDir, `${p.id}.svg`), svg(p), 'utf8');
 console.log(`wrote ${people.length} portraits to ${outDir}`);
+
 
 

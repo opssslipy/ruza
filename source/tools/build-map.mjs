@@ -69,10 +69,10 @@ for (const e of osm.elements) {
       if (t.area === 'yes') continue;
       const w = ROAD_W[t.highway];
       if (!w) continue;
-      roads.push({ pts: simplify(e.geometry.map(proj), 0.5), w, bridge: t.bridge === 'yes' || t.bridge === 'viaduct', kind: t.highway });
+      roads.push({ pts: simplify(e.geometry.map(proj), 0.5), w, bridge: t.bridge === 'yes' || t.bridge === 'viaduct', kind: t.highway, name: t.name });
     } else if (t.waterway) {
       const w = t.waterway === 'river' ? 14 : t.waterway === 'stream' || t.waterway === 'canal' ? 4 : 0;
-      if (w) rivers.push({ pts: simplify(e.geometry.map(proj), 0.8), w });
+      if (w) rivers.push({ pts: simplify(e.geometry.map(proj), 0.8), w, name: t.name });
     } else if (t.natural === 'water') {
       if (closed(e.geometry)) addPoly(waters, e.geometry, {});
     } else if (t.leisure === 'pitch' || t.leisure === 'stadium') {
@@ -177,10 +177,63 @@ venue('teatre', 'Театре', [sqPos[0] - 60, sqPos[1] + 40], { note: 'заг�
 venue('pharmacy', 'Аптека', pharm ? pharm.pos : [sqPos[0] + 80, sqPos[1] - 50], { note: 'заглушка: ближайшая аптека из OSM («Аптечный пункт»), не подтверждена автором', placeholder: true });
 venue('garages', 'Гаражи', [homePos[0] + 70, homePos[1] + 60], { note: 'заглушка: рядом с домом по просьбе автора', placeholder: true });
 
+// building look: kind picks the colour family, levels the visual height (see src/game/worldRender.ts)
+// 0 apartments, 1 house, 2 public, 3 commercial, 4 other
+const areaOf = (pts) => Math.abs(pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + (p[0] * q[1] - q[0] * p[1]); }, 0)) / 2;
+function kindOf(b) {
+  const t = b.t.building;
+  if (['apartments', 'residential', 'dormitory'].includes(t)) return 0;
+  if (['house', 'detached', 'semidetached_house', 'bungalow', 'terrace'].includes(t)) return 1;
+  if (['school', 'kindergarten', 'hospital', 'civic', 'public', 'government', 'church', 'cathedral', 'sports_centre', 'transportation'].includes(t)) return 2;
+  if (['retail', 'commercial', 'supermarket', 'office', 'bank', 'service'].includes(t)) return 3;
+  if (['garage', 'garages', 'industrial', 'warehouse', 'roof', 'shed'].includes(t)) return 4;
+  const lv = Number(b.t['building:levels']);
+  const a = areaOf(b.pts);
+  if (lv >= 3) return 0;
+  return a < 220 ? 1 : 4;
+}
+function levelsOf(b, k) {
+  const lv = Number(b.t['building:levels']);
+  if (lv > 0) return Math.min(lv, 12);
+  return [5, 1.5, 3, 2, 1.2][k];
+}
+
+// street and river name labels: one label per way that is long enough, text kept upright along the road
+const SHORT = [[/ улица$/, ' ул.'], [/^улица /, 'ул. '], [/ переулок$/, ' пер.'], [/^переулок /, 'пер. '], [/ проезд$/, ' пр-д'], [/^проезд /, 'пр-д '], [/ шоссе$/, ' ш.'], [/ проспект$/, ' пр-т'], [/^река /, 'р. ']];
+const short = (n) => SHORT.reduce((s, [re, to]) => s.replace(re, to), n);
+const streets = [];
+function addLabels(list, river) {
+  const placed = [];
+  for (const r of list) {
+    if (!r.name || r.pts.length < 2) continue;
+    let len = 0;
+    for (let i = 0; i + 1 < r.pts.length; i++) len += Math.hypot(r.pts[i + 1][0] - r.pts[i][0], r.pts[i + 1][1] - r.pts[i][1]);
+    if (len < (river ? 80 : 70)) continue;
+    let acc = 0;
+    for (let i = 0; i + 1 < r.pts.length; i++) {
+      const a = r.pts[i], b = r.pts[i + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (acc + l >= len / 2) {
+        const f = (len / 2 - acc) / (l || 1);
+        const x = a[0] + (b[0] - a[0]) * f, y = a[1] + (b[1] - a[1]) * f;
+        if (placed.some((p) => p.n === r.name && Math.hypot(p.x - x, p.y - y) < 170)) break;
+        let ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+        if (ang > Math.PI / 2) ang -= Math.PI; else if (ang < -Math.PI / 2) ang += Math.PI;
+        placed.push({ n: r.name, x, y });
+        streets.push({ n: short(r.name), x: r1(x), y: r1(y), a: Math.round(ang * 1000) / 1000, r: river ? 1 : 0, big: r.w >= 8 ? 1 : 0 });
+        break;
+      }
+      acc += l;
+    }
+  }
+}
+addLabels(roads, false);
+addLabels(rivers, true);
+
 const out = {
   width: r1(WIDTH), height: r1(HEIGHT), cell: CELL, gridW: GW, gridH: GH,
   blocked: Buffer.from(packed).toString('base64'),
-  buildings: buildings.map((b) => flat(b.pts)),
+  buildings: buildings.map((b) => { const k = kindOf(b); return { p: flat(b.pts), k, l: levelsOf(b, k) }; }),
+  streets,
   roads: roads.map((r) => ({ w: r.w, p: flat(r.pts) })),
   rivers: rivers.map((r) => ({ w: r.w, p: flat(r.pts) })),
   waters: waters.map((w) => flat(w.pts)),

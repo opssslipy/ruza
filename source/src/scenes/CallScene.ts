@@ -1,5 +1,6 @@
 ﻿import Phaser from 'phaser';
 import { CALLS, CALLS_PER_ROUND, PAY_PER_SUCCESS, type Call } from '../content/calls';
+import { fitColumn } from '../game/layout';
 import { FONT, GAME_HEIGHT, GAME_WIDTH } from '../config';
 import { applyEffect } from '../game/state';
 import { getState, persist } from '../game/store';
@@ -16,6 +17,7 @@ export class CallScene extends Phaser.Scene {
   }
 
   create(): void {
+    fitColumn(this);
     this.queue = Phaser.Utils.Array.Shuffle([...CALLS]).slice(0, CALLS_PER_ROUND);
     this.ok = 0;
     this.cameras.main.setBackgroundColor('#1b2230');

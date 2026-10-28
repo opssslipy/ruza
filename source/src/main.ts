@@ -1,7 +1,6 @@
 ﻿import Phaser from 'phaser';
-import { GAME_HEIGHT, GAME_WIDTH, PASSWORD_SHA256 } from './config';
+import { PASSWORD_SHA256 } from './config';
 import { MenuScene } from './scenes/MenuScene';
-import { DialogueScene } from './scenes/DialogueScene';
 import { MapScene } from './scenes/MapScene';
 import { VenueScene } from './scenes/VenueScene';
 import { CallScene } from './scenes/CallScene';
@@ -20,8 +19,8 @@ function startGame(): void {
     type: Phaser.AUTO,
     parent: 'game',
     backgroundColor: '#14110f',
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: GAME_WIDTH, height: GAME_HEIGHT },
-    scene: [MapScene, MenuScene, DialogueScene, VenueScene, CallScene, EndScene],
+    scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
+    scene: [MapScene, MenuScene, VenueScene, CallScene, EndScene],
   });
 }
 

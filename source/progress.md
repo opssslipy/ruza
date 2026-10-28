@@ -26,3 +26,8 @@ Date: 2026-10-28. Live: https://opssslipy.github.io/ruza/ (repo opssslipy/ruza, 
 - OPEN: character descriptions for Stas, Petya, Bezuk, Demon, Korun, Kryazh, Minyucha.
 - OPEN: ODbL: map.json derived from OSM in a public repo (lawyer question).
 - OPEN: independent verification pass with clean context (reviewer agent) before calling stage 1 done.
+
+## Tomorrow (2026-10-29): agreed with the author
+Order: (1) responsive layout for phone AND desktop (Phaser RESIZE, UI camera, WASD + E on PC), (2) dialogue as a panel at the BOTTOM over the map/venue, NOT a separate screen (remove DialogueScene), (3) real full-body character sprites with walk animation instead of circles (looks in src/content/looks.json, already created and shared with tools/make-portraits.mjs), (4) nicer map: shadows, trees, road markings, street names from OSM, night window lights, baked chunk textures for phone speed, (5) furniture in interiors.
+Reference for the look: author's Yandex Maps screenshot of Ruza (parks, river, named streets). Reference only, no copying of Yandex data.
+State right now: live site = last tested version (commit c1f0ef0, with faces). Local half-done: looks.json added; tools/make-portraits.mjs now reads it (not yet re-run; petya hairColor changed). Nothing else refactored yet.
