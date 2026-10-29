@@ -252,15 +252,15 @@ export class MapScene extends Phaser.Scene {
     this.stickBase = this.add.circle(0, 0, 54, 0xffffff, 0.2).setDepth(105).setVisible(false);
     this.stickKnob = this.add.circle(0, 0, 26, 0xffffff, 0.5).setDepth(106).setVisible(false);
 
-    const talk = this.button(W, H - 130, 0x2b3a55);
+    const talk = this.button(W, H - 74, 0x2b3a55);
     this.talkBtn = talk.c; this.talkLabel = talk.label;
     talk.box.on('pointerdown', () => this.startTalk());
-    const enter = this.button(W, H - 190, 0x2b6a3a);
+    const enter = this.button(W, H - 130, 0x2b6a3a);
     this.enterBtn = enter.c; this.enterLabel = enter.label;
     enter.box.on('pointerdown', () => this.enterVenue());
 
-    const friends = this.add.rectangle(W - 52, H - 80, 90, 34, 0x2b3a55, 0.92).setStrokeStyle(2, 0xffffff, 0.5).setDepth(110).setInteractive({ useHandCursor: true });
-    this.add.text(W - 52, H - 80, 'Друзья', { fontFamily: FONT, fontSize: '15px', color: '#fff' }).setOrigin(0.5).setDepth(111);
+    const friends = this.add.rectangle(W - 52, 124, 90, 34, 0x2b3a55, 0.92).setStrokeStyle(2, 0xffffff, 0.5).setDepth(110).setInteractive({ useHandCursor: true });
+    this.add.text(W - 52, 124, 'Друзья', { fontFamily: FONT, fontSize: '15px', color: '#fff' }).setOrigin(0.5).setDepth(111);
     friends.on('pointerdown', () => this.scene.start('menu'));
 
     // camera height buttons on the right edge
