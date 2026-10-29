@@ -4,7 +4,7 @@ Date: 2026-10-28. Live: https://opssslipy.github.io/ruza/ (repo opssslipy/ruza, 
 
 ## Done
 - Real map of the centre of Ruza from OpenStreetMap, walking (keyboard + touch joystick), collision, bridges, landmarks and 12 venue markers.
-- Game state (src/game/state.ts): clock (1 s = 4 game min), needs (satiety, energy, mood, health, wanted), money, midnight household cost 700 RUB, passing out, 4 endings (banka "Стаса в баньке не было", arrested, broke, week survived).
+- Game state (src/game/state.ts): clock (1 s = 4 game min), needs (satiety, energy, mood, health, wanted), money, midnight household cost 700 RUB, passing out, 4 endings (banka "Потрачено", arrested, broke, week survived).
 - Venues (src/content/venues.ts): enter from the map, actions with prices, effects and time costs, friends present by schedule are tappable inside.
 - Work: Skillbox cold calls mini-game (src/content/calls.ts, 10 scenarios, 5 per round, 4 rounds a day, weekdays 10-19).
 - 8 friends with ink dialogues; each dialogue changes needs once per game day (src/content/effects.ts).

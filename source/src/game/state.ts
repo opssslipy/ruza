@@ -121,7 +121,7 @@ export function describeEffect(e: Effect): string {
 
 export function endingText(id: EndingId, s: GameState): { title: string; text: string } {
   switch (id) {
-    case 'banka': return { title: 'Стаса в баньке не было', text: 'Здоровье кончилось раньше, чем неделя. Друзья потом долго вспоминали, каким он был.' };
+    case 'banka': return { title: 'Потрачено', text: 'Здоровье кончилось раньше, чем неделя. Друзья потом долго вспоминали, каким он был.' };
     case 'arrested': return { title: 'Стаса задержали', text: 'Розыск дошёл до предела. Бара сказал, что это ничего личного, а Петя довольно улыбнулся.' };
     case 'broke': return { title: 'Стас на мели', text: 'Долги выросли так, что дом и семья остались без денег. Выкручиваться больше нечем.' };
     case 'week': return { title: 'Неделя пройдена', text: `Стас дожил до воскресенья. Денег осталось ${Math.round(s.money)} ₽, настроение ${Math.round(s.mood)}, здоровье ${Math.round(s.health)}.` };
