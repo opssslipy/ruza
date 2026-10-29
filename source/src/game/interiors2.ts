@@ -197,5 +197,5 @@ export function buildGarage(): Room {
   const seats: Seat[] = [{ x: 36, z: 30, yaw: -Math.PI / 2 }, { x: 36, z: 34, yaw: -Math.PI / 2 }];
   for (const z of [30, 34]) add(s.g, box(3, 1.4, 3), lam(0x6a4a33), 37.5, 0.7, z);
   s.spots.push({ id: 'a0', x: 38, z: 26, r: 13, label: '', action: 0 });
-  return finish(s, 0x0e0e10, { sky: 0xffe6b0, ground: 0x6a5a40, i: 1.9 }, undefined, seats);
+  return finish(s, 0x0e0e10, { sky: 0xffe6b0, ground: 0x6a5a40, i: 1.9 }, undefined, seats, { x: 8, z: 33 }); // the default spawn sits inside the car's collision margin
 }
