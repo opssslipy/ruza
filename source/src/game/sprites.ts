@@ -5,7 +5,7 @@ import looks from '../content/looks.json';
 // portrait as the head (the photo for friends who gave one). Everything is drawn once into a small canvas atlas per character.
 export interface Look {
   id: string; skin: string; hair: string; hairColor: string; extra: string; pants: string; mouth: string;
-  outfit: string; c1: string; c2: string; tie?: string; shoes: string; hat: string; hatColor?: string; prop: string; chain?: boolean; bun?: boolean;
+  outfit: string; build?: string; tattoos?: boolean; shorts?: boolean; c1: string; c2: string; tie?: string; shoes: string; hat: string; hatColor?: string; prop: string; chain?: boolean; bun?: boolean;
 }
 export const LOOKS = looks as unknown as Look[];
 

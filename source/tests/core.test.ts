@@ -39,7 +39,7 @@ describe('every written dialogue', () => {
   const talkable = CHARACTERS.filter((c) => c.ink);
 
   it('has one for each expected character', () => {
-    expect(talkable.map((c) => c.id).sort()).toEqual(['anyaartem', 'bara', 'belka', 'diana', 'karina', 'lev', 'shatruha', 'timur']);
+    expect(talkable.map((c) => c.id).sort()).toEqual(['anyaartem', 'bara', 'belka', 'bezuk', 'demon', 'diana', 'karina', 'korun', 'kryazh', 'lev', 'minyucha', 'petya', 'shatruha', 'timur']);
   });
 
   it.each(talkable.map((c) => [c.id, c.ink as string]))('%s: both choice paths reach the end and set the flag only on helping', (id, ink) => {

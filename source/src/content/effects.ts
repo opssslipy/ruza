@@ -9,5 +9,12 @@ export const DIALOGUE_EFFECTS: Record<string, { yes: Effect; no: Effect }> = {
   belka: { yes: { mood: 6, wanted: 6, minutes: 10 }, no: { mood: 2, minutes: 10 } },
   bara: { yes: { wanted: -12, mood: -5, minutes: 15 }, no: { wanted: 25, mood: -8, minutes: 15 } },
   shatruha: { yes: { mood: 10, energy: -6, minutes: 40 }, no: { mood: 3, minutes: 10 } },
+  // drafts for the characters the author has not described yet: effects follow their roles only
+  demon: { yes: { money: -500, mood: -4, wanted: -3, minutes: 20 }, no: { mood: -6, wanted: 6, minutes: 15 } },
+  korun: { yes: { money: 300, mood: 4, wanted: 7, minutes: 40 }, no: { mood: -2, minutes: 10 } },
+  bezuk: { yes: { wanted: -8, mood: -3, minutes: 15 }, no: { wanted: 12, mood: -5, minutes: 15 } },
+  petya: { yes: { money: -1000, wanted: -10, mood: -6, minutes: 20 }, no: { wanted: 18, mood: -8, minutes: 15 } },
+  kryazh: { yes: { money: -300, mood: 12, health: -3, wanted: 6, minutes: 20 }, no: { mood: -1, minutes: 10 } },
+  minyucha: { yes: { money: -200, mood: 10, minutes: 45 }, no: { mood: -3, minutes: 10 } },
   karina: { yes: { mood: 12, satiety: -5, health: -2, minutes: 60 }, no: { mood: -2, minutes: 10 } },
 };

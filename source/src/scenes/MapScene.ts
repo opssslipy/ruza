@@ -118,6 +118,7 @@ export class MapScene extends Phaser.Scene {
           state: this.state,
           teleport: (id: string) => { const l = this.landmark(id); const p = this.nearestFree(l.pos[0] * S, l.pos[1] * S); this.px = p.x; this.py = p.y; this.w3.teleportCamera(p.x / S, p.y / S); },
           talk: (id: string) => this.box.open(id),
+          near: (id: string) => { const n = this.npcs.find((x) => x.id === id); if (n?.visible) { this.px = n.x + 24; this.py = n.y + 6; this.w3.teleportCamera(this.px / S, this.py / S); } return !!n?.visible; },
           view: () => ({ w: this.scale.width, h: this.scale.height, dist: this.w3.getDistance() }),
           setDistance: (d: number) => this.w3.setDistance(d),
         },

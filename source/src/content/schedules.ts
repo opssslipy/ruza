@@ -40,6 +40,35 @@ const SCHEDULES: Record<string, Slot[]> = {
     { when: 'weekday', from: 9, to: 18, at: 'police' },
     { when: 'all', from: 21, to: 24, at: 'ruzvelt' },
   ],
+  // drafts for the characters the author has not described yet
+  demon: [
+    { when: 'weekday', from: 10, to: 13, at: 'gym' },
+    { when: 'weekday', from: 13, to: 18, at: 'garages' },
+    { when: 'all', from: 19, to: 24, at: 'ruzvelt' },
+    { when: 'weekend', from: 12, to: 19, at: 'garages' },
+  ],
+  korun: [
+    { when: 'weekday', from: 14, to: 19, at: 'garages' },
+    { when: 'all', from: 19, to: 24, at: 'dym' },
+    { when: 'weekend', from: 12, to: 19, at: 'stadium' },
+  ],
+  bezuk: [
+    { when: 'weekday', from: 9, to: 18, at: 'police' },
+    { when: 'all', from: 18, to: 22, at: 'mixbar' },
+  ],
+  petya: [
+    { when: 'weekday', from: 9, to: 18, at: 'police' },
+    { when: 'weekend', from: 12, to: 17, at: 'stadium' },
+  ],
+  kryazh: [
+    { when: 'all', from: 12, to: 20, at: 'busstation' },
+    { when: 'all', from: 20, to: 24, at: 'garages' },
+  ],
+  minyucha: [
+    { when: 'weekday', from: 12, to: 19, at: 'teatre' },
+    { when: 'all', from: 19, to: 22, at: 'square' },
+    { when: 'weekend', from: 12, to: 19, at: 'square' },
+  ],
   shatruha: [
     { when: 'weekday', from: 10, to: 19, at: 'pyaterochka' },
     { when: 'all', from: 19, to: 22, at: 'square' },

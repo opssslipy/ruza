@@ -1,10 +1,18 @@
 import * as THREE from 'three';
 import type { Look } from './sprites';
 
-// A low-poly 3D person: chunky body in the costume invented for the character, and a big head that is the character's photo
-// (a disc that always turns to the camera, so the face is always readable). Units are "design metres", scaled by the world.
+// A low-poly 3D person: a body in the costume invented for the character and built to the described figure (slim, normal,
+// muscular), and a big head that is the character's photo (a disc that always turns to the camera, so the face is readable).
+// Units are "design metres", scaled by the world.
 export const DESIGN_H = 6.2;
 const HEAD_Y = 4.95;
+
+interface Build { chest: number; waist: number; hip: number; arm: number; leg: number; shoulder: number }
+const BUILDS: Record<string, Build> = {
+  normal: { chest: 1.0, waist: 0.96, hip: 1.02, arm: 0.34, leg: 0.42, shoulder: 1.3 },
+  slim: { chest: 0.82, waist: 0.58, hip: 0.86, arm: 0.25, leg: 0.34, shoulder: 1.02 },
+  muscular: { chest: 1.32, waist: 1.0, hip: 1.0, arm: 0.5, leg: 0.5, shoulder: 1.75 },
+};
 
 export interface Rig {
   root: THREE.Group; // yaw and position
@@ -25,9 +33,32 @@ function mesh(g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0): 
   return o;
 }
 
-/** The head disc: the portrait clipped to a circle with a dark rim. */
+/** Skin with dark ink drawn on it (sleeve tattoos). */
+function tattooMaterial(skin: string, seed: number): THREE.MeshLambertMaterial {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const g = c.getContext('2d') as CanvasRenderingContext2D;
+  g.fillStyle = skin; g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = 'rgba(30,30,48,0.9)'; g.fillStyle = 'rgba(30,30,48,0.9)';
+  let s = seed;
+  const r = (): number => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  g.lineWidth = 3;
+  for (let i = 0; i < 9; i++) {
+    g.beginPath();
+    g.moveTo(r() * 128, r() * 128);
+    g.bezierCurveTo(r() * 128, r() * 128, r() * 128, r() * 128, r() * 128, r() * 128);
+    g.stroke();
+  }
+  for (let i = 0; i < 6; i++) { g.beginPath(); g.arc(r() * 128, r() * 128, 4 + r() * 8, 0, Math.PI * 2); g.fill(); }
+  g.fillRect(0, 50, 128, 10); g.fillRect(0, 88, 128, 6);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshLambertMaterial({ map: t, flatShading: true });
+}
+
 const PHOTO_IDS = new Set(['lev', 'timur', 'diana', 'anyaartem', 'belka', 'karina']);
 
+/** The head disc: the portrait clipped to a circle with a dark rim. */
 function headTexture(img: HTMLImageElement | null, skin: string, photo: boolean): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
@@ -46,36 +77,55 @@ function headTexture(img: HTMLImageElement | null, skin: string, photo: boolean)
 }
 
 export function buildRig(look: Look, headImg: HTMLImageElement | null): Rig {
+  const B = BUILDS[look.build ?? 'normal'] ?? (BUILDS.normal as Build);
   const root = new THREE.Group();
   const bob = new THREE.Group();
   root.add(bob);
   const skin = lam(look.skin), c1 = lam(look.c1), c2 = lam(look.c2), pants = lam(look.pants), shoes = lam(look.shoes);
-  const dark = lam(col(look.c1, 0.7)), gold = lam(0xe0b53a);
+  const dark = lam(col(look.c1, 0.7)), gold = lam(0xe0b53a), sole = lam(0xf2f2f2);
   const dress = look.outfit === 'dress', robe = look.outfit === 'robe', overalls = look.outfit === 'overalls';
-  const legMat = dress || robe ? skin : pants;
+  const tank = look.outfit === 'tank', fitted = look.outfit === 'fitted';
+  const bareLegs = dress || robe;
+  const legMat = bareLegs ? skin : pants;
+  const ink = look.tattoos ? tattooMaterial(look.skin, look.id.length * 977) : skin;
 
-  // legs swing from the hip
+  // legs swing from the hip; shorts end above the knee, sneakers have a white sole
+  const hipX = Math.max(0.42, B.hip * 0.55);
   const leg = (x: number): THREE.Group => {
     const g = new THREE.Group();
     g.position.set(x, 1.75, 0);
-    g.add(mesh(new THREE.CylinderGeometry(0.44, 0.4, 1.5, 8), legMat, 0, -0.75, 0));
-    g.add(mesh(new THREE.BoxGeometry(0.9, 0.42, 1.3), shoes, 0, -1.54, 0.22));
+    if (look.shorts) {
+      g.add(mesh(new THREE.CylinderGeometry(B.leg, B.leg * 0.95, 0.85, 8), legMat, 0, -0.42, 0));
+      g.add(mesh(new THREE.CylinderGeometry(B.leg * 0.8, B.leg * 0.72, 0.65, 8), skin, 0, -1.17, 0));
+    } else {
+      g.add(mesh(new THREE.CylinderGeometry(B.leg, B.leg * 0.9, 1.5, 8), legMat, 0, -0.75, 0));
+    }
+    g.add(mesh(new THREE.BoxGeometry(0.95, 0.34, 1.35), shoes, 0, -1.5, 0.22));
+    g.add(mesh(new THREE.BoxGeometry(1.0, 0.12, 1.42), sole, 0, -1.69, 0.22));
     return g;
   };
-  const legL = leg(-0.55), legR = leg(0.55);
+  const legL = leg(-hipX), legR = leg(hipX);
   bob.add(legL, legR);
 
-  // torso and what it wears
-  const sleeve = overalls ? c2 : c1;
+  // torso: a lathe profile gives a real waist (thin for slim builds, broad chest for muscular ones)
+  const torsoMat = overalls ? c2 : c1;
+  const profile = [[B.hip * 1.02, 1.75], [B.hip * 1.05, 2.05], [B.waist, 2.55], [B.chest, 3.1], [B.chest * 0.93, 3.45], [0.5, 3.66]].map(([r, y]) => new THREE.Vector2(r as number, y as number));
+  const lathe = (m: THREE.Material): THREE.Mesh => { const t = mesh(new THREE.LatheGeometry(profile, 14), m); t.scale.z = 0.7; return t; };
   if (robe) {
     const r = mesh(new THREE.CylinderGeometry(1.05, 1.4, 3.1, 12), c1, 0, 2.15, 0); r.scale.z = 0.78; bob.add(r);
     const belt = mesh(new THREE.CylinderGeometry(1.14, 1.14, 0.26, 12), c2, 0, 2.6, 0); belt.scale.z = 0.8; bob.add(belt);
   } else if (dress) {
-    const t = mesh(new THREE.CylinderGeometry(0.9, 0.98, 1.3, 12), c1, 0, 2.9, 0); t.scale.z = 0.72; bob.add(t);
-    bob.add(mesh(new THREE.CylinderGeometry(0.98, 1.75, 1.5, 14), c1, 0, 1.95, 0));
+    bob.add(lathe(c1));
+    bob.add(mesh(new THREE.CylinderGeometry(B.hip * 1.0, 1.75, 1.5, 14), c1, 0, 1.95, 0));
   } else {
-    const t = mesh(new THREE.CylinderGeometry(0.98, 1.06, 1.9, 12), overalls ? c2 : c1, 0, 2.65, 0); t.scale.z = 0.7; bob.add(t);
+    bob.add(lathe(torsoMat));
   }
+  if (fitted) { // pants waistband and a lighter neckline
+    const band = mesh(new THREE.CylinderGeometry(B.hip * 1.06, B.hip * 1.06, 0.22, 14), pants, 0, 1.9, 0); band.scale.z = 0.7; bob.add(band);
+    bob.add(mesh(new THREE.BoxGeometry(0.9, 0.12, 0.1), lam(look.c2), 0, 3.5, 0.5));
+  }
+  if (tank) { const hem = mesh(new THREE.CylinderGeometry(B.hip * 1.07, B.hip * 1.07, 0.18, 14), pants, 0, 1.82, 0); hem.scale.z = 0.7; bob.add(hem); }
+
   switch (look.outfit) {
     case 'suit':
       bob.add(mesh(new THREE.BoxGeometry(0.95, 1.1, 0.1), c2, 0, 3.0, 0.72));
@@ -105,21 +155,26 @@ export function buildRig(look: Look, headImg: HTMLImageElement | null): Rig {
       break;
   }
 
-  // arms swing from the shoulder
+  // arms swing from the shoulder: sleeves first, bare (inked) skin below; tank tops and short sleeves leave the arms free
+  const sleeveLen = tank ? 0 : fitted ? 0.45 : 1.4;
+  const sleeveMat = overalls ? c2 : c1;
   const arm = (x: number): THREE.Group => {
     const g = new THREE.Group();
     g.position.set(x, 3.3, 0);
-    g.add(mesh(new THREE.CylinderGeometry(0.34, 0.3, 1.4, 8), sleeve, 0, -0.7, 0));
-    g.add(mesh(new THREE.SphereGeometry(0.38, 8, 6), skin, 0, -1.5, 0));
+    const r = B.arm;
+    if (sleeveLen > 0) g.add(mesh(new THREE.CylinderGeometry(r, r * 0.92, sleeveLen, 8), sleeveMat, 0, -sleeveLen / 2, 0));
+    const bare = 1.4 - sleeveLen;
+    if (bare > 0) g.add(mesh(new THREE.CylinderGeometry(r * 0.92, r * 0.8, bare, 8), ink, 0, -sleeveLen - bare / 2, 0));
+    g.add(mesh(new THREE.SphereGeometry(r + 0.06, 8, 6), skin, 0, -1.5, 0));
     return g;
   };
-  const armL = arm(-1.3), armR = arm(1.3);
+  const armL = arm(-B.shoulder), armR = arm(B.shoulder);
   bob.add(armL, armR);
 
   // props
   if (look.prop === 'chain' || look.chain) { const c = mesh(new THREE.TorusGeometry(0.72, 0.07, 5, 14), lam(look.prop === 'chain' ? 0xf0c040 : 0xd8d8d8), 0, 3.45, 0.15); c.rotation.x = Math.PI / 2; bob.add(c); }
   if (look.prop === 'mug') armR.add(mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.55, 10), lam(0xffffff), 0.1, -1.75, 0.4));
-  if (look.prop === 'wbbag') { bob.add(mesh(new THREE.BoxGeometry(0.5, 1.15, 1.0), lam(0x8b2fa8), -1.7, 2.0, 0.1)); bob.add(mesh(new THREE.BoxGeometry(0.06, 0.5, 0.55), lam(0xffffff), -1.97, 2.1, 0.1)); }
+  if (look.prop === 'wbbag') { bob.add(mesh(new THREE.BoxGeometry(0.5, 1.0, 0.9), lam(0x8b2fa8), -B.shoulder - 0.45, 2.0, 0.1)); bob.add(mesh(new THREE.BoxGeometry(0.06, 0.45, 0.5), lam(0xffffff), -B.shoulder - 0.72, 2.1, 0.1)); }
   if (look.prop === 'bags') { armL.add(mesh(new THREE.BoxGeometry(0.4, 0.75, 0.6), lam(0xf4f4f4), 0, -1.95, 0.1)); armR.add(mesh(new THREE.BoxGeometry(0.4, 0.75, 0.6), lam(0xf7c6d8), 0, -1.95, 0.1)); }
   if (look.prop === 'keys') { bob.add(mesh(new THREE.BoxGeometry(0.22, 0.4, 0.08), lam(0x111111), 0.8, 1.95, 0.74)); bob.add(mesh(new THREE.SphereGeometry(0.1, 6, 5), lam(0xdd3333), 0.8, 1.7, 0.74)); }
   if (look.prop === 'backpack') bob.add(mesh(new THREE.BoxGeometry(1.7, 2.0, 0.85), lam(0x3d4a3a), 0, 2.7, -0.95));
