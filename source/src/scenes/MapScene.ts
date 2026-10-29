@@ -139,6 +139,7 @@ export class MapScene extends Phaser.Scene {
           setDistance: (d: number) => this.w3.setDistance(d),
           ui: () => ({ enter: this.enterBtn.visible ? this.enterLabel.text : '', target: this.enterTarget }),
           enter: () => this.enterVenue(),
+          pos: () => ({ x: this.px / S, z: this.py / S }),
           event: (id: string) => { const ev = EVENTS.find((x) => x.id === id); if (ev) this.showEvent(ev); return !!ev; },
           eventOpen: () => this.evObjs.length > 0,
         },

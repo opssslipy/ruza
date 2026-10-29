@@ -125,9 +125,60 @@ function strokeLine(pts, width, value) {
 
 for (const w of waters) fillPolygon(w.pts, 1);
 for (const r of rivers) strokeLine(r.pts, r.w, 1);
+// the player body is about 4.7 m wide in MapScene.blockedBody, so every opened strip must be at least 8 m: a diagonal strip of 6 m leaves only 1.3 m of slack and the player jams on its edge
+const WALK_W = 8;
 // a bridge opens a walkable strip across the river
-for (const r of roads) if (r.bridge) strokeLine(r.pts, Math.max(r.w, 4), 0);
+for (const r of roads) if (r.bridge) strokeLine(r.pts, Math.max(r.w, WALK_W), 0);
+// most crossings are not tagged bridge=yes in OSM (culverts, unmapped bridges), and the player must not have to walk around the river
+// in the middle of town: every other road opens a strip too. Buildings are filled afterwards, so they stay solid.
+const crossings = [];
+for (const r of roads) {
+  if (r.bridge || r.kind === 'track') continue;
+  const before = grid.slice();
+  strokeLine(r.pts, Math.max(r.w, WALK_W), 0);
+  let n = 0;
+  for (let i = 0; i < grid.length; i++) if (before[i] && !grid[i]) n++;
+  if (n) { const p = r.pts[Math.floor(r.pts.length / 2)]; crossings.push({ name: r.name ?? r.kind, w: r.w, x: Math.round(p[0]), y: Math.round(p[1]), cells: n }); }
+}
+console.log('roads opened across water:', crossings.length, JSON.stringify(crossings.slice(0, 40)));
+const waterGrid = grid.slice(); // water (and bridge) state before the houses, so a footbridge only ever clears water cells
 for (const b of buildings) fillPolygon(b.pts, 1);
+
+// --- footbridges -----------------------------------------------------------------------------------
+// OSM tags few bridges, so rivers in the centre could be crossed in only one or two places over kilometres.
+// Walking along each river near the square: where the nearest way across is further than BRIDGE_GAP, put a footbridge
+// at the first spot whose two banks are free ground. They are drawn as planks with rails and are walkable.
+const BRIDGE_GAP = 160, BRIDGE_ZONE = 900;
+const zone = proj({ lat: 55.6998, lon: 36.1945 });
+const gridBlocked = (x, y) => { const gx = Math.floor(x / CELL), gy = Math.floor(y / CELL); return gx < 0 || gy < 0 || gx >= GW || gy >= GH || grid[gy * GW + gx] === 1; };
+const bridges = [];
+for (const r of rivers) {
+  let since = 0, prev = null;
+  for (let i = 0; i + 1 < r.pts.length; i++) {
+    const a = r.pts[i], b = r.pts[i + 1], d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (d < 1e-6) continue;
+    const tx = (b[0] - a[0]) / d, ty = (b[1] - a[1]) / d, nx = -ty, ny = tx;
+    for (let s = 0; s < d; s += 8) {
+      const x = a[0] + tx * s, y = a[1] + ty * s;
+      since += prev ? 8 : 0; prev = true;
+      if (Math.hypot(x - zone[0], y - zone[1]) > BRIDGE_ZONE) continue;
+      if (!gridBlocked(x, y)) { since = 0; continue; }
+      if (since < BRIDGE_GAP) continue;
+      const reach = r.w / 2 + 3;
+      // both banks need open ground (a 3 x 3 patch), not a lone free cell in a closed yard
+      const roomy = (px, py) => { for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) if (gridBlocked(px + ox * CELL, py + oy * CELL)) return false; return true; };
+      if (!roomy(x + nx * reach, y + ny * reach) || !roomy(x - nx * reach, y - ny * reach)) continue;
+      for (let u = -reach; u <= reach; u += 1) for (let v = -4; v <= 4; v += 1) {
+        const px = x + nx * u + tx * v, py = y + ny * u + ty * v;
+        const gx = Math.floor(px / CELL), gy = Math.floor(py / CELL);
+        if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && waterGrid[gy * GW + gx] === 1) grid[gy * GW + gx] = 0;
+      }
+      bridges.push({ x: r1(x), y: r1(y), a: Math.round(Math.atan2(ny, nx) * 1000) / 1000, l: r1(r.w + 8), w: 7.6 });
+      since = 0;
+    }
+  }
+}
+console.log('footbridges added:', bridges.length, JSON.stringify(bridges.map((q) => [q.x, q.y])));
 
 const packed = new Uint8Array(Math.ceil(grid.length / 8));
 for (let i = 0; i < grid.length; i++) if (grid[i]) packed[i >> 3] |= 1 << (i & 7);
@@ -235,6 +286,7 @@ const out = {
   buildings: buildings.map((b) => { const k = kindOf(b); const o = { p: flat(b.pts), k, l: levelsOf(b, k) }; const n = b.t['addr:housenumber']; if (n) o.n = String(n); return o; }),
   streets,
   roads: roads.map((r) => ({ w: r.w, p: flat(r.pts) })),
+  bridges,
   rivers: rivers.map((r) => ({ w: r.w, p: flat(r.pts) })),
   waters: waters.map((w) => flat(w.pts)),
   greens: greens.map((g) => flat(g.pts)),

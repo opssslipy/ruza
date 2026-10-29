@@ -160,6 +160,27 @@ export class World3D {
     if (mid.length) this.flat(this.posGeo(mid), 0xd4d3cc, 6);
     if (small.length) this.flat(this.posGeo(small), 0xdcd6c2, 7);
     if (path.length) this.flat(this.posGeo(path), 0xd8cca8, 8);
+    this.buildBridges();
+  }
+
+  /** Footbridges the map builder added over rivers: planks and two rails, walkable in the collision grid. */
+  private buildBridges(): void {
+    const deck = new THREE.MeshBasicMaterial({ color: 0x9a7a4e }), rail = new THREE.MeshBasicMaterial({ color: 0x5e452c });
+    for (const b of this.map.bridges ?? []) {
+      const g = new THREE.Group();
+      const plank = new THREE.Mesh(new THREE.BoxGeometry(b.l, 0.3, b.w), deck);
+      plank.position.y = 0.22;
+      g.add(plank);
+      for (const side of [-1, 1]) {
+        const r = new THREE.Mesh(new THREE.BoxGeometry(b.l, 0.9, 0.22), rail);
+        r.position.set(0, 0.75, side * (b.w / 2 - 0.1));
+        g.add(r);
+      }
+      g.position.set(b.x, 0, b.y);
+      g.rotation.y = -b.a; // local x runs across the river
+      g.traverse((o) => { o.renderOrder = 9; });
+      this.city.add(g);
+    }
   }
 
   // --- houses and windows ------------------------------------------------------------------------
