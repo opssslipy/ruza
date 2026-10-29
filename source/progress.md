@@ -77,3 +77,13 @@ OPEN: quest texts and rewards are drafts; more quests and street events; other v
 - Tests: 53 passing. Live: https://opssslipy.github.io/ruza/ ; artifact version 9.
 - OPEN: independent clean-context review not done yet; sound never heard by a human on a phone; event texts are drafts;
   descriptions for Petya/Bezuk/Demon/Korun/Kryazh/Minyucha; photos of Bara and Shatruha.
+
+## Checkpoint 2026-10-29 (update 10)
+- Done: balance (hunger 0.04/min, energy 0.05/min, sleep hunger 0.02, start satiety 55) + sensible-player week test; compact bottom buttons;
+  ending 'banka' renamed "Потрачено"; footbridges (tools/build-map.mjs: WALK_W=8 strips on every road crossing water + 15 footbridges
+  on rivers within 900 m of the square; map.json has `bridges`, drawn in world3d.buildBridges); Karina has 8 random dialogue scenes
+  (src/content/ink/karina.ink, tests/karina.test.ts; keep final choices order: 1 helps, 2 refuses, 3 helps, 4 refuses).
+- Lesson: player body is ~4.7 m (MapScene.blockedBody r=7px), any opened strip must be >= 8 m or the player jams on diagonal strips.
+- Tests: 57 passing. Live https://opssslipy.github.io/ruza/ ; artifact version 12.
+- OPEN: independent runtime review still not done (reviewer sandbox cannot start Edge); more dialogue for other friends;
+  event texts and Karina scenes are drafts; Pyaterochka and police share identical coordinates.

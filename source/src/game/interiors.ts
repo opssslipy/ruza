@@ -103,7 +103,8 @@ export function buildDym(): Room {
   }
 
   // lounge groups: low round table with a hookah, a sofa on each side
-  const tables: [number, number][] = [[13, 22], [30, 22], [47, 22], [30, 33]];
+  // the groups are 13.8 m wide and the body needs 3.2 m, so the aisles between them must be well over that: tests/reach.test.ts guards it
+  const tables: [number, number][] = [[10, 22], [30, 22], [50, 22], [30, 33]];
   const emitters: { x: number; z: number }[] = [];
   for (const [tx, tz] of tables) {
     add(g, new THREE.CylinderGeometry(3, 3, 0.45, 12), lam(0x6a4a33), tx, 2.5, tz);
@@ -115,14 +116,14 @@ export function buildDym(): Room {
     hose.rotation.set(Math.PI / 2.3, 0.4, 0.6);
     emitters.push({ x: tx, z: tz });
     for (const side of [-1, 1]) {
-      const sx = tx + side * 5.8;
+      const sx = tx + side * 5;
       add(g, box(3, 1.3, 7.4), lam(side < 0 ? 0x7a3fb0 : 0x2f7de1), sx, 0.65, tz);
       add(g, box(0.9, 3, 7.4), lam(side < 0 ? 0x6a3498 : 0x2565b8), sx + side * 1.5, 2.3, tz);
       colliders.push({ x0: sx - 1.9, z0: tz - 4, x1: sx + 1.9, z1: tz + 4 });
       for (const dz of [-1.8, 1.8]) seats.push({ x: sx, z: tz + dz, yaw: side < 0 ? Math.PI / 2 : -Math.PI / 2 });
     }
     colliders.push({ x0: tx - 3.2, z0: tz - 3.2, x1: tx + 3.2, z1: tz + 3.2 });
-    spots.push({ id: 'hookah', x: tx, z: tz, r: 8.5, label: 'Кальян (600 ₽)' });
+    spots.push({ id: 'hookah', x: tx, z: tz, r: 10, label: 'Кальян (600 ₽)' });
   }
 
   // decoration: plants, hanging lamps, coloured lights
@@ -131,7 +132,7 @@ export function buildDym(): Room {
     add(g, new THREE.ConeGeometry(2.4, 6, 6), lam(0x2f8a4a), px, 4.7, pz);
     colliders.push({ x0: px - 1.6, z0: pz - 1.6, x1: px + 1.6, z1: pz + 1.6 });
   }
-  const lights: [number, number, number][] = [[13, 22, 0xff4fc0], [30, 22, 0x4fd6ff], [47, 22, 0xffb04f]];
+  const lights: [number, number, number][] = [[10, 22, 0xff4fc0], [30, 22, 0x4fd6ff], [50, 22, 0xffb04f]];
   for (const [lx, lz, c] of lights) {
     add(g, new THREE.CylinderGeometry(0.08, 0.08, 6, 4), lam(0x222222), lx, 13, lz);
     add(g, new THREE.SphereGeometry(1.1, 8, 6), glow(c), lx, 9.8, lz);

@@ -175,15 +175,15 @@ export function buildCinema(): Room {
   add(s.g, box(36, 12, 0.5), glow(0xf2f4ff), 30, 7, 0.4);
   const seats: Seat[] = [];
   for (let r = 0; r < 4; r++) for (let c = 0; c < 8; c++) {
-    const x = 14 + c * 4.6, z = 17 + r * 5;
+    const x = 14 + c * 4.6 + (c >= 4 ? 4.4 : 0), z = 17 + r * 5; // the 4.4 m shift opens a central aisle wide enough for the player body
     add(s.g, box(3.2, 1.3, 3), lam(0x9a2a3a), x, 0.65, z);
     add(s.g, box(3.2, 3, 0.8), lam(0x7a1a2a), x, 1.9, z + 1.3);
     if (r > 0) seats.push({ x, z, yaw: Math.PI });
   }
-  // two blocks of seats with an aisle between them
-  s.colliders.push({ x0: 11, z0: 15, x1: 28, z1: 36.5 }, { x0: 32, z0: 15, x1: 49, z1: 36.5 });
-  s.spots.push({ id: 'a0', x: 30, z: 20, r: 9, label: '', action: 0 });
-  return finish(s, 0x08060a, { sky: 0xffc0c0, ground: 0x5a2a32, i: 1.7 }, undefined, seats, { x: 30, z: 34 });
+  // two blocks of seats with an aisle between them; colliders follow the seats, so there is a free corridor in front of the rows to the door
+  s.colliders.push({ x0: 12.2, z0: 15.2, x1: 29.4, z1: 34.2 }, { x0: 35, z0: 15.2, x1: 52.4, z1: 34.2 });
+  s.spots.push({ id: 'a0', x: 32.2, z: 20, r: 9, label: '', action: 0 });
+  return finish(s, 0x08060a, { sky: 0xffc0c0, ground: 0x5a2a32, i: 1.7 }, undefined, seats, { x: 32.2, z: 36.8 });
 }
 
 export function buildGarage(): Room {

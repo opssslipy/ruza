@@ -163,6 +163,7 @@ export class InteriorScene extends Phaser.Scene {
         __ruzaIn: {
           state: this.state,
           teleport: (x: number, z: number) => { this.px = x; this.pz = z; },
+          pos: () => ({ x: this.px, z: this.pz }),
           spots: () => this.room.spots.map((s) => ({ id: s.id, x: s.x, z: s.z })),
           npcs: () => this.npcs.map((n) => ({ id: n.id, sitting: !!n.seat })),
           use: () => this.useSpot(),
