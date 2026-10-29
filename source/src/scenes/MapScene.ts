@@ -14,6 +14,7 @@ import { hasInterior } from './InteriorScene';
 import { music, sfx, stopMusic } from '../game/audio';
 import { muteButton } from '../game/muteButton';
 import { EVENTS, eventDue, resolveEvent, rollEvent, type EventDef } from '../game/events';
+import { matchOn } from '../game/football';
 import { currentTargets, offerQuest, onTalk, onVisit, tickQuests } from '../game/quests';
 
 // Game logic works in "map pixels" (3 px = 1 m) as before; the 3D world is told positions in metres (px / S).
@@ -23,6 +24,7 @@ const ENTER_RANGE = 120;
 const GAME_MINUTES_PER_SECOND = 4;
 const SQUARE_RADIUS = 28 * S; // the whole square, in map px: music and the hang-out button work inside it
 const HANGOUT = 'hangout'; // enterTarget value for the square, which is not a venue
+const MATCH = 'match'; // enterTarget value for watching football at the stadium
 
 interface Npc { id: string; name: string; x: number; y: number; visible: boolean; index: number }
 
@@ -143,6 +145,8 @@ export class MapScene extends Phaser.Scene {
           enter: () => this.enterVenue(),
           pos: () => ({ x: this.px / S, z: this.py / S }),
           season: (s: Season) => { this.state.season = s; this.w3.setSeason(s); },
+          match: () => this.w3.matchScore(),
+          watch: () => this.watchMatch(),
           event: (id: string) => { const ev = EVENTS.find((x) => x.id === id); if (ev) this.showEvent(ev); return !!ev; },
           eventOpen: () => this.evObjs.length > 0,
         },
@@ -215,6 +219,20 @@ export class MapScene extends Phaser.Scene {
     this.closeEvent();
     sfx.click();
     this.showToast(lines);
+  }
+
+  /** Watching the match from the stands' edge: an hour passes, the mood depends on the score and on the friends who came. */
+  private watchMatch(): void {
+    const st = this.map.stadium;
+    if (!st) return;
+    const score = this.w3.matchScore() ?? [0, 0];
+    const friends = this.npcs.filter((n) => n.visible && Phaser.Math.Distance.Between(n.x, n.y, st.x * S, st.y * S) < 90 * S).length;
+    const lead = score[0] - score[1];
+    const fx: Effect = { minutes: 60, mood: 8 + friends * 3 + (lead > 0 ? 5 : lead < 0 ? -3 : 0), energy: -2, satiety: -3 };
+    const lines = [`Урожай ${score[0]}:${score[1]} Гости.${friends ? ` Рядом ${friends} из твоих.` : ''}`, lead > 0 ? 'Наши ведут, трибуны ревут.' : lead < 0 ? 'Проигрываем, но настроение держится.' : 'Пока ничья, трибуны гудят.'];
+    this.showToast([...lines, describeEffect(fx), ...applyEffect(this.state, fx), ...onVisit(this.state, 'stadium')]);
+    sfx.good();
+    persist();
   }
 
   /** People gather on the square after 17:00, and on weekend afternoons. */
@@ -396,6 +414,7 @@ export class MapScene extends Phaser.Scene {
   private enterVenue(): void {
     if (!this.enterTarget || this.paused) return;
     if (this.enterTarget === HANGOUT) { this.hangOut(); return; }
+    if (this.enterTarget === MATCH) { this.watchMatch(); return; }
     this.registry.set('mapPos', { x: this.px, y: this.py });
     this.scene.start(hasInterior(this.enterTarget) ? 'interior' : 'venue', { venueId: this.enterTarget });
   }
@@ -471,6 +490,8 @@ export class MapScene extends Phaser.Scene {
     this.placeFriends();
     this.w3.setNight(this.nightAlpha());
     const busy = this.squareBusy();
+    const matchNow = matchOn(this.state);
+    this.w3.setMatchOn(matchNow, this.state.day * 3 + (this.state.minutes >= 15 * 60 ? 1 : 0));
     this.w3.setBystandersLevel(busy ? 2 : 1);
     this.hint.setText(this.paused ? '' : this.objective());
 
@@ -521,12 +542,16 @@ export class MapScene extends Phaser.Scene {
     music(busy && onSquare && !this.paused ? 'square' : '');
     const hang = busy && onSquare && !venue;
     if (hang) this.enterTarget = HANGOUT;
+    const stm = this.map.stadium;
+    const watch = !!stm && matchNow && !venue && !hang && Phaser.Math.Distance.Between(this.px, this.py, stm.x * S, stm.y * S) < 75 * S;
+    if (watch) this.enterTarget = MATCH;
 
     const showKeys = !this.sys.game.device.input.touch;
     this.talkBtn.setVisible(!!near && !this.paused);
-    this.enterBtn.setVisible((!!venue || hang) && !this.paused);
+    this.enterBtn.setVisible((!!venue || hang || watch) && !this.paused);
     if (near) this.talkLabel.setText(`Поговорить: ${near.name}${showKeys ? '   [E]' : ''}`);
     if (venue) this.enterLabel.setText(`Зайти: ${venue.name}${near ? '' : showKeys ? '   [E]' : ''}`);
     else if (hang) this.enterLabel.setText(`Потусоваться на площади${near ? '' : showKeys ? '   [E]' : ''}`);
+    else if (watch) { const sc = this.w3.matchScore() ?? [0, 0]; this.enterLabel.setText(`Смотреть матч ${sc[0]}:${sc[1]}${near ? '' : showKeys ? '   [E]' : ''}`); }
   }
 }

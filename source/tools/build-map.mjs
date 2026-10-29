@@ -180,6 +180,50 @@ for (const r of rivers) {
 }
 console.log('footbridges added:', bridges.length, JSON.stringify(bridges.map((q) => [q.x, q.y])));
 
+// --- the main football pitch of the stadium and its stands ----------------------------------------------
+// OSM has one big outline for the whole stadium (way 168915122) and several pitches inside and next to it; the one that looks like
+// a real 11-a-side field (about 100 x 60 m) closest to the outline is where the matches are played. The stands stand along both
+// long sides, and their ground is solid so nobody walks through the seats.
+function minRect(pts) {
+  const c0 = [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
+  let best = null;
+  for (let a = 0; a < Math.PI; a += 0.01) {
+    const co = Math.cos(a), si = Math.sin(a);
+    let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
+    for (const p of pts) {
+      const u = (p[0] - c0[0]) * co + (p[1] - c0[1]) * si, v = -(p[0] - c0[0]) * si + (p[1] - c0[1]) * co;
+      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    }
+    const area = (u1 - u0) * (v1 - v0);
+    if (!best || area < best.area) best = { a, area, du: (u0 + u1) / 2, dv: (v0 + v1) / 2, L: u1 - u0, W: v1 - v0 };
+  }
+  let { a, L, W, du, dv } = best;
+  let cx = c0[0] + Math.cos(a) * du - Math.sin(a) * dv, cy = c0[1] + Math.sin(a) * du + Math.cos(a) * dv;
+  if (L < W) { a += Math.PI / 2; [L, W] = [W, L]; }
+  return { cx, cy, a: a % Math.PI, l: L, w: W };
+}
+const outline = pitches.find((p) => p.id === 168915122);
+const outlineC = outline ? [outline.pts.reduce((s, p) => s + p[0], 0) / outline.pts.length, outline.pts.reduce((s, p) => s + p[1], 0) / outline.pts.length] : null;
+let stadiumInfo = null;
+if (outlineC) {
+  for (const p of pitches) {
+    if (p === outline) continue;
+    const r = minRect(p.pts);
+    const d = Math.hypot(r.cx - outlineC[0], r.cy - outlineC[1]);
+    if (d > 150 || r.l < 85 || r.l > 125 || r.w < 50 || r.w > 80) continue;
+    if (!stadiumInfo || d < stadiumInfo.d) stadiumInfo = { d, x: r1(r.cx), y: r1(r.cy), a: Math.round(r.a * 1000) / 1000, l: r1(r.l), w: r1(r.w) };
+  }
+}
+if (stadiumInfo) {
+  const { x, y, a, l, w } = stadiumInfo;
+  for (const side of [-1, 1]) {
+    const corner = (u, v) => [x + u * Math.cos(a) - v * Math.sin(a), y + u * Math.sin(a) + v * Math.cos(a)];
+    fillPolygon([corner(-0.42 * l, side * (w / 2 + 6)), corner(0.42 * l, side * (w / 2 + 6)), corner(0.42 * l, side * (w / 2 + 19)), corner(-0.42 * l, side * (w / 2 + 19))], 1);
+  }
+  delete stadiumInfo.d;
+}
+console.log('stadium pitch:', JSON.stringify(stadiumInfo));
+
 const packed = new Uint8Array(Math.ceil(grid.length / 8));
 for (let i = 0; i < grid.length; i++) if (grid[i]) packed[i >> 3] |= 1 << (i & 7);
 
@@ -287,6 +331,7 @@ const out = {
   streets,
   roads: roads.map((r) => ({ w: r.w, p: flat(r.pts) })),
   bridges,
+  stadium: stadiumInfo,
   rivers: rivers.map((r) => ({ w: r.w, p: flat(r.pts) })),
   waters: waters.map((w) => flat(w.pts)),
   greens: greens.map((g) => flat(g.pts)),

@@ -9,7 +9,7 @@ export interface Landmark { id: string; name: string; pos: [number, number]; kin
 
 export interface MapData {
   width: number; height: number; cell: number; gridW: number; gridH: number; blocked: string;
-  buildings: Building[]; streets: Street[]; roads: Line[]; /** footbridges added over rivers: centre, direction across the river, length, width */ bridges?: { x: number; y: number; a: number; l: number; w: number }[]; rivers: Line[]; waters: number[][]; greens: number[][]; pitches: number[][];
+  buildings: Building[]; streets: Street[]; roads: Line[]; /** footbridges added over rivers: centre, direction across the river, length, width */ stadium?: { x: number; y: number; a: number; l: number; w: number }; bridges?: { x: number; y: number; a: number; l: number; w: number }[]; rivers: Line[]; waters: number[][]; greens: number[][]; pitches: number[][];
   landmarks: Landmark[];
   shops: Shop[];
 }

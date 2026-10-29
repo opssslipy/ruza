@@ -5,6 +5,8 @@ import type { MapData } from './mapData';
 import { addGun, buildRig, DESIGN_H, FACE_Y, pose, type Rig } from './figure3d';
 import { LOOKS, type Look } from './sprites';
 import { SEASON_COLORS, crownColor } from './seasons';
+import { Match } from './football';
+import { Stadium3D, footballLook } from './stadium3d';
 import type { Season } from './state';
 import { advanceWalker, makeCar, pickRoads, polyline, randomLook, sampleAt, type Walker } from './streetLife';
 
@@ -63,6 +65,10 @@ export class World3D {
   private skyDay = new THREE.Color(0xcfe3f1);
   private hemiGround = new THREE.Color(0xb9ac8c);
   private lastNight = 0;
+  private stadium: Stadium3D | null = null;
+  private match: Match | null = null;
+  private matchRequested = false;
+  private matchSeed = 1;
   private flakes: THREE.Points | null = null;
   private flakeSeed: Float32Array = new Float32Array(0);
 
@@ -83,6 +89,7 @@ export class World3D {
     this.buildTrees();
     this.buildLabels();
     this.buildStreetLife();
+    this.buildStadium();
     this.ready = this.loadFigures();
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -533,6 +540,48 @@ export class World3D {
 
   setBystandersLevel(level: 0 | 1 | 2): void { this.bystandersLevel = level; }
 
+  // --- football at the stadium ---------------------------------------------------------------------
+  private buildStadium(): void {
+    const si = this.map.stadium;
+    if (!si) return;
+    this.stadium = new Stadium3D(si);
+    this.stadium.setSeason(this.season);
+    this.city.add(this.stadium.group);
+    for (let i = 0; i < 22; i++) {
+      const id = `pl${i}`;
+      this.extraLooks.set(id, footballLook(id, i));
+      this.heads.set(id, null);
+      this.addFigure(id, null);
+    }
+  }
+
+  /** A match is on (players, ball and fans appear) or not; a new match starts from the seed when it begins. */
+  setMatchOn(on: boolean, seed: number): void { this.matchRequested = on; this.matchSeed = seed; if (!on) this.match = null; }
+  matchScore(): [number, number] | null { return this.match ? [this.match.score[0], this.match.score[1]] : null; }
+
+  private updateMatch(dt: number, show: boolean): void {
+    const st = this.stadium;
+    if (!st) return;
+    const on = show && this.matchRequested;
+    if (on && !this.match) {
+      let s = this.matchSeed * 7919 + 13;
+      this.match = new Match(st.info.l, st.info.w, () => { s = (s * 9301 + 49297) % 233280; return s / 233280; });
+    }
+    const m = this.match;
+    if (m && on) m.step(Math.min(dt, 0.1));
+    const c = Math.cos(st.info.a), sn = Math.sin(st.info.a);
+    for (let i = 0; i < 22; i++) {
+      const id = `pl${i}`;
+      const p = m?.players[i];
+      if (m && p && on) {
+        const w = st.toWorld(p.u, p.v);
+        this.setFigure(id, w.x, w.z, true, p.speed > 0.6, Math.atan2(p.hu * c - p.hv * sn, p.hu * sn + p.hv * c));
+      } else this.setFigure(id, 0, 0, false);
+    }
+    if (m && on) { st.ball.position.set(m.ball.u, 0.95 + m.ball.h, m.ball.v); st.ball.visible = true; } else st.ball.visible = false;
+    st.update(performance.now() / 1000, on, on && m ? m.cheer : 0);
+  }
+
   streetStats(): { cars: number; walkers: number; first: { x: number; z: number } | null } {
     const c = this.traffic[0];
     return { cars: this.traffic.length, walkers: this.crowd.length, first: c ? { x: c.g.position.x, z: c.g.position.z } : null };
@@ -548,6 +597,7 @@ export class World3D {
       c.g.scale.setScalar(carK);
     }
     const show = !this.inInterior && !this.titleMode;
+    this.updateMatch(dt, show);
     this.bystanders.forEach((b, i) => this.setFigure(b.id, b.x, b.z, show && (this.bystandersLevel === 2 || (this.bystandersLevel === 1 && i % 2 === 0)), false, b.yaw));
     for (const c of this.crowd) {
       advanceWalker(c.w, dt);
@@ -605,6 +655,7 @@ export class World3D {
       this.flakes.renderOrder = 60;
       this.city.add(this.flakes);
     }
+    this.stadium?.setSeason(s);
     this.setNight(this.lastNight);
   }
 
