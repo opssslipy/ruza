@@ -4,6 +4,8 @@ import { FONT } from '../config';
 import type { MapData } from './mapData';
 import { addGun, buildRig, DESIGN_H, FACE_Y, pose, type Rig } from './figure3d';
 import { LOOKS, type Look } from './sprites';
+import { SEASON_COLORS, crownColor } from './seasons';
+import type { Season } from './state';
 import { advanceWalker, makeCar, pickRoads, polyline, randomLook, sampleAt, type Walker } from './streetLife';
 
 // Low-poly 3D town: OSM footprints extruded into houses, flat road ribbons, instanced trees and windows, billboard figures.
@@ -56,7 +58,13 @@ export class World3D {
   private traffic: { g: THREE.Group; w: Walker; lane: number }[] = [];
   private crowd: { id: string; w: Walker }[] = [];
   private ready: Promise<void>;
-  private flatMats: { m: THREE.MeshBasicMaterial; base: THREE.Color }[] = [];
+  private flatMats: { m: THREE.MeshBasicMaterial; base: THREE.Color; role?: string }[] = [];
+  private season: Season = 'autumn';
+  private skyDay = new THREE.Color(0xcfe3f1);
+  private hemiGround = new THREE.Color(0xb9ac8c);
+  private lastNight = 0;
+  private flakes: THREE.Points | null = null;
+  private flakeSeed: Float32Array = new Float32Array(0);
 
   constructor(canvas: HTMLCanvasElement, private map: MapData) {
     this.canvas = canvas;
@@ -81,9 +89,9 @@ export class World3D {
   }
 
   // --- flat ground layers ------------------------------------------------------------------------
-  private flat(geo: THREE.BufferGeometry, color: number, order: number): void {
+  private flat(geo: THREE.BufferGeometry, color: number, order: number, role?: string): void {
     const mat = new THREE.MeshBasicMaterial({ color, depthWrite: false, side: THREE.DoubleSide });
-    this.flatMats.push({ m: mat, base: new THREE.Color(color) });
+    this.flatMats.push({ m: mat, base: new THREE.Color(color), role });
     const m = new THREE.Mesh(geo, mat);
     m.renderOrder = order;
     this.city.add(m);
@@ -129,7 +137,7 @@ export class World3D {
 
   private buildGround(): void {
     const m = this.map;
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(m.width + 4000, m.height + 4000), (() => { const mat = new THREE.MeshBasicMaterial({ color: 0xece6d2, depthWrite: false, side: THREE.DoubleSide }); this.flatMats.push({ m: mat, base: new THREE.Color(0xece6d2) }); return mat; })());
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(m.width + 4000, m.height + 4000), (() => { const mat = new THREE.MeshBasicMaterial({ color: 0xece6d2, depthWrite: false, side: THREE.DoubleSide }); this.flatMats.push({ m: mat, base: new THREE.Color(0xece6d2), role: 'ground' }); return mat; })());
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(m.width / 2, 0, m.height / 2);
     ground.renderOrder = 0;
@@ -140,14 +148,14 @@ export class World3D {
       return ok.length ? mergeGeometries(ok) : null;
     };
     const parks = merge(m.greens.map((p) => this.polyGeo(p, 0.02)));
-    if (parks) this.flat(parks, 0xb9d98f, 1);
+    if (parks) this.flat(parks, 0xb9d98f, 1, 'parks');
     const pitches = merge(m.pitches.map((p) => this.polyGeo(p, 0.03)));
-    if (pitches) this.flat(pitches, 0x9fd08a, 2);
+    if (pitches) this.flat(pitches, 0x9fd08a, 2, 'pitch');
     const waters = merge(m.waters.map((p) => this.polyGeo(p, 0.04)));
-    if (waters) this.flat(waters, 0x72b5de, 3);
+    if (waters) this.flat(waters, 0x72b5de, 3, 'water');
     const rv: number[] = [];
     for (const r of m.rivers) this.ribbon(r.p, r.w, 0.05, rv);
-    if (rv.length) this.flat(this.posGeo(rv), 0x72b5de, 3);
+    if (rv.length) this.flat(this.posGeo(rv), 0x72b5de, 3, 'water');
 
     // roads: grey casing, lighter fill; tracks are pale dirt paths
     const cas: number[] = [], big: number[] = [], mid: number[] = [], small: number[] = [], path: number[] = [];
@@ -347,7 +355,7 @@ export class World3D {
     const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.35, 0.5, 2.4, 5).translate(0, 1.2, 0), new THREE.MeshLambertMaterial({ color: 0x6a4a30 }), pos.length);
     const crown = new THREE.InstancedMesh(new THREE.ConeGeometry(2.7, 7, 6).translate(0, 5.4, 0), new THREE.MeshLambertMaterial({ color: 0xffffff }), pos.length);
     const c = new THREE.Color();
-    pos.forEach((_p, i) => crown.setColorAt(i, c.setHSL(0.33 + hash(i + 3) * 0.04, 0.45, 0.2 + hash(i + 9) * 0.1)));
+    pos.forEach((_p, i) => crown.setColorAt(i, crownColor(this.season, i, c)));
     this.treePos = pos;
     this.trunk = trunk;
     this.crown = crown;
@@ -569,6 +577,55 @@ export class World3D {
   }
 
   // --- title screen: orbiting camera, cars on a street, armed heroes ------------------------------
+  /** Recolours the town for a season and starts falling leaves or snow where the season has them. */
+  setSeason(s: Season): void {
+    this.season = s;
+    const k = SEASON_COLORS[s];
+    for (const f of this.flatMats) {
+      const c = f.role ? k[f.role as 'ground' | 'parks' | 'pitch' | 'water'] : undefined;
+      if (c !== undefined) f.base.set(c);
+    }
+    this.skyDay.set(k.sky);
+    this.hemiGround.set(k.hemiGround);
+    if (!this.inInterior) this.hemi.groundColor.copy(this.hemiGround);
+    if (this.crown) {
+      const c = new THREE.Color();
+      for (let i = 0; i < this.treePos.length; i++) this.crown.setColorAt(i, crownColor(s, i, c));
+      if (this.crown.instanceColor) this.crown.instanceColor.needsUpdate = true;
+    }
+    if (this.flakes) { this.city.remove(this.flakes); this.flakes.geometry.dispose(); this.flakes = null; }
+    if (k.flake) {
+      const n = 520, pos = new Float32Array(n * 3);
+      this.flakeSeed = new Float32Array(n);
+      for (let i = 0; i < n; i++) { pos[i * 3] = (hash(i * 3 + 1) - 0.5) * 170; pos[i * 3 + 1] = hash(i * 3 + 2) * 60; pos[i * 3 + 2] = (hash(i * 3 + 3) - 0.5) * 170; this.flakeSeed[i] = hash(i + 77); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      this.flakes = new THREE.Points(g, new THREE.PointsMaterial({ color: k.flake, size: s === 'winter' ? 1.5 : 2.1, transparent: true, opacity: 0.9, depthWrite: false }));
+      this.flakes.frustumCulled = false;
+      this.flakes.renderOrder = 60;
+      this.city.add(this.flakes);
+    }
+    this.setNight(this.lastNight);
+  }
+
+  private updateFlakes(dt: number): void {
+    if (!this.flakes) return;
+    this.flakes.visible = !this.inInterior;
+    const p = this.flakes.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const fall = this.season === 'winter' ? 7 : 4.5, tx = this.smooth.x, tz = this.smooth.z, t = performance.now() / 1000;
+    for (let i = 0; i < p.count; i++) {
+      let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const sd = this.flakeSeed[i] as number;
+      y -= fall * (0.6 + sd * 0.8) * dt;
+      x += Math.sin(t * (0.6 + sd) + i) * dt * (this.season === 'winter' ? 1.6 : 3.2);
+      if (y < 0) y += 60;
+      if (x - tx > 85) x -= 170; else if (x - tx < -85) x += 170;
+      if (z - tz > 85) z -= 170; else if (z - tz < -85) z += 170;
+      p.setXYZ(i, x, y, z);
+    }
+    p.needsUpdate = true;
+  }
+
   setTitleMode(on: boolean): void { this.titleMode = on; if (!on) { this.yaw = 0; this.clearCars(); this.applyTrees(null); } }
   setYaw(a: number): void { this.yaw = a; }
 
@@ -650,7 +707,7 @@ export class World3D {
     this.inInterior = false;
     this.city.visible = true;
     if (this.savedFog) this.scene.fog = this.savedFog;
-    this.hemi.groundColor.set(0xb9ac8c);
+    this.hemi.groundColor.copy(this.hemiGround);
     for (const f of this.figures.values()) { f.visible = false; f.sitting = false; if (f.rig) { f.rig.root.visible = false; f.rig.face.visible = false; } f.shadow.visible = false; }
   }
 
@@ -664,7 +721,8 @@ export class World3D {
   setNight(a: number): void {
     if (this.inInterior) return; // the room has its own light
     const k = Math.max(0, Math.min(1, a / 0.65));
-    const day = new THREE.Color(0xcfe3f1), night = new THREE.Color(0x0e1530);
+    this.lastNight = a;
+    const day = this.skyDay.clone(), night = new THREE.Color(0x0e1530);
     const sky = day.clone().lerp(night, k);
     this.scene.background = sky;
     if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(sky);
@@ -687,6 +745,7 @@ export class World3D {
   whenReady(): Promise<void> { return this.ready; }
 
   update(dt: number): void {
+    this.updateFlakes(dt);
     this.smooth.lerp(this.target, 1 - Math.exp(-dt * 6));
     const d = this.inInterior ? this.idist : this.dist;
     const pitch = this.inInterior ? THREE.MathUtils.degToRad(57) : this.titleMode ? THREE.MathUtils.degToRad(33) : this.pitch;

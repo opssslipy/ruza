@@ -66,8 +66,11 @@ describe('save', () => {
   });
 
   it('falls back to a fresh save on garbage or wrong version', () => {
-    expect(loadSave(memoryStorage('not json'))).toEqual(emptySave());
-    expect(loadSave(memoryStorage(JSON.stringify({ version: 99, game: emptySave().game })))).toEqual(emptySave());
+    // a fresh game gets a random season, so the comparison ignores it
+    const fresh = (): unknown => { const e = emptySave(); delete e.game.season; return e; };
+    const stripped = (data: ReturnType<typeof loadSave>): unknown => { const c = structuredClone(data); delete c.game.season; return c; };
+    expect(stripped(loadSave(memoryStorage('not json')))).toEqual(fresh());
+    expect(stripped(loadSave(memoryStorage(JSON.stringify({ version: 99, game: emptySave().game }))))).toEqual(fresh());
   });
 });
 

@@ -1,6 +1,9 @@
 // Pure game logic: no Phaser here, so it can be tested and tuned without a browser.
 
 export type EndingId = 'banka' | 'arrested' | 'broke' | 'week';
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
+export const SEASONS: Season[] = ['spring', 'summer', 'autumn', 'winter'];
+export const SEASON_NAMES: Record<Season, string> = { spring: 'Весна', summer: 'Лето', autumn: 'Осень', winter: 'Зима' };
 export type SleepMode = 'awake' | 'sleep' | 'faint';
 
 export interface GameState {
@@ -18,6 +21,8 @@ export interface GameState {
   passOuts: number;
   ended: EndingId | null;
   nextEventAt?: number;
+  /** picked at random for a new game and kept in the save; saves from before seasons count as autumn */
+  season?: Season;
   quests?: { active: { id: string; step: number; until: number }[]; done: string[]; failed: string[] };
 }
 
@@ -38,13 +43,16 @@ export const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'
 
 const clamp = (n: number): number => Math.max(0, Math.min(100, n));
 
-export function newGame(): GameState {
+export function newGame(rnd: () => number = Math.random): GameState {
   return {
+    season: SEASONS[Math.floor(rnd() * SEASONS.length)] as Season,
     day: 0, minutes: 8 * 60 + 30,
     satiety: 55, energy: 70, mood: 60, health: 90, wanted: 0, money: START_MONEY,
     talked: [], talkedDay: {}, workedToday: 0, passOuts: 0, ended: null, quests: { active: [], done: [], failed: [] },
   };
 }
+
+export const seasonOf = (s: GameState): Season => s.season ?? 'autumn';
 
 export function isWeekday(s: GameState): boolean {
   return s.day < 5;

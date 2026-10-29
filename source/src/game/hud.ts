@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { FONT } from '../config';
-import { clockText, type GameState } from './state';
+import { clockText, SEASON_NAMES, seasonOf, type GameState } from './state';
 
 const BARS: { key: 'satiety' | 'energy' | 'mood' | 'health' | 'wanted'; label: string; color: number }[] = [
   { key: 'satiety', label: 'Сытость', color: 0xe0a040 },
@@ -32,7 +32,7 @@ export function createHud(scene: Phaser.Scene, state: GameState, opts: { width?:
   });
 
   const update = (): void => {
-    clock.setText(clockText(state));
+    clock.setText(`${clockText(state)} · ${SEASON_NAMES[seasonOf(state)]}`);
     money.setText(`${Math.round(state.money)} ₽`).setColor(state.money < 0 ? '#ff7070' : '#9be59b');
     BARS.forEach((b, i) => {
       const v = Math.max(0, Math.min(100, state[b.key]));

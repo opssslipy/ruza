@@ -3,7 +3,7 @@ import { CHARACTERS } from '../content/characters';
 import { whereIs } from '../content/schedules';
 import { venueById } from '../content/venues';
 import { FONT } from '../config';
-import { advance, applyEffect, describeEffect, isWeekday, MAX_WORK_ROUNDS, type Effect, type GameState } from '../game/state';
+import { advance, applyEffect, type Season, describeEffect, isWeekday, MAX_WORK_ROUNDS, type Effect, type GameState } from '../game/state';
 import { createHud } from '../game/hud';
 import { DialogueBox } from '../game/dialogueBox';
 import { S, type Landmark, type MapData } from '../game/mapData';
@@ -97,6 +97,8 @@ export class MapScene extends Phaser.Scene {
     const tanH = Math.tan((fovFor(aspect) * Math.PI) / 360) * aspect;
     this.w3.setDistance((this.registry.get('dist') as number | undefined) ?? 150 / (2 * tanH));
     this.w3.teleportCamera(this.px / S, this.py / S);
+    this.state.season ??= 'autumn'; // saves from before seasons
+    this.w3.setSeason(this.state.season);
     this.w3.addFigure('stas', null);
     CHARACTERS.filter((c) => c.ink).forEach((ch, i) => {
       this.w3.addFigure(ch.id, ch.name);
@@ -140,6 +142,7 @@ export class MapScene extends Phaser.Scene {
           ui: () => ({ enter: this.enterBtn.visible ? this.enterLabel.text : '', target: this.enterTarget }),
           enter: () => this.enterVenue(),
           pos: () => ({ x: this.px / S, z: this.py / S }),
+          season: (s: Season) => { this.state.season = s; this.w3.setSeason(s); },
           event: (id: string) => { const ev = EVENTS.find((x) => x.id === id); if (ev) this.showEvent(ev); return !!ev; },
           eventOpen: () => this.evObjs.length > 0,
         },
