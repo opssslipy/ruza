@@ -483,6 +483,26 @@ export class World3D {
     }
   }
 
+  // --- bystanders: anonymous people who gather somewhere, e.g. the square in the evening ------------
+  private bystanders: { id: string; x: number; z: number; yaw: number }[] = [];
+  private bystandersOn = false;
+
+  /** The scene picks the spots (only it knows the free ground); here they only get a random look and a place. */
+  addBystanders(spots: { x: number; z: number; yaw: number }[]): void {
+    this.bystanders = [];
+    let s = 4242;
+    const r = (): number => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+    spots.forEach((p, i) => {
+      const id = `folk${i}`;
+      this.extraLooks.set(id, randomLook(id, r));
+      this.heads.set(id, null);
+      this.addFigure(id, null);
+      this.bystanders.push({ id, ...p });
+    });
+  }
+
+  setBystandersOn(on: boolean): void { this.bystandersOn = on; }
+
   streetStats(): { cars: number; walkers: number; first: { x: number; z: number } | null } {
     const c = this.traffic[0];
     return { cars: this.traffic.length, walkers: this.crowd.length, first: c ? { x: c.g.position.x, z: c.g.position.z } : null };
@@ -498,6 +518,7 @@ export class World3D {
       c.g.scale.setScalar(carK);
     }
     const show = !this.inInterior && !this.titleMode;
+    for (const b of this.bystanders) this.setFigure(b.id, b.x, b.z, show && this.bystandersOn, false, b.yaw);
     for (const c of this.crowd) {
       advanceWalker(c.w, dt);
       const p = sampleAt(c.w, c.w.s), f = c.w.dir;

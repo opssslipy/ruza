@@ -68,13 +68,13 @@ export const sfx = {
 let timer: ReturnType<typeof setInterval> | null = null;
 let kind = '';
 
-/** Looping background music for a place: 'club' (beat and bass) or 'lounge' (soft pads). Anything else stops it. */
+/** Looping background music for a place: 'club' (beat and bass), 'lounge' (soft pads) or 'square' (street guitar). Anything else stops it. */
 export function music(k: string): void {
   if (k === kind) return;
   stopMusic();
-  if (!ctx || (k !== 'club' && k !== 'lounge')) return;
+  if (!ctx || (k !== 'club' && k !== 'lounge' && k !== 'square')) return;
   kind = k;
-  const bpm = k === 'club' ? 124 : 84;
+  const bpm = k === 'club' ? 124 : k === 'square' ? 96 : 84;
   const stepLen = 60 / bpm / 4;
   let step = 0;
   let next = ctx.currentTime + 0.1;
@@ -89,6 +89,14 @@ export function music(k: string): void {
         if (s === 4 || s === 12) noise(0.12, 0.3, at, 2500);
         if ([0, 3, 6, 10, 14].includes(s)) tone(55 * (s > 8 ? 1.2 : 1), 0.2, 'sawtooth', 0.18, at);
         if (s % 8 === 0) tone(440 * (s === 0 ? 1 : 1.5), 0.5, 'triangle', 0.07, at);
+      } else if (k === 'square') {
+        // plucked chords Am - F - C - G, one per bar, with a soft hand-drum on the off beats
+        const chords = [[220, 261.6, 329.6], [174.6, 220, 261.6], [261.6, 329.6, 392], [196, 246.9, 293.7]];
+        const bar = Math.floor(step / 16) % 4;
+        const ch = chords[bar] as number[];
+        if (s % 2 === 0) tone((ch[(s / 2) % 3] as number) * (s % 8 === 0 ? 0.5 : 1), 0.45, 'triangle', 0.13, at);
+        if (s % 8 === 4) tone(110, 0.12, 'sine', 0.3, at, 60);
+        if (s % 4 === 2) noise(0.04, 0.1, at, 6000);
       } else {
         if (s === 0) [220, 261.6, 329.6, 392].forEach((f) => tone(f, stepLen * 15, 'sine', 0.06, at));
         if (s === 8) [196, 246.9, 293.7, 392].forEach((f) => tone(f, stepLen * 7, 'sine', 0.05, at));

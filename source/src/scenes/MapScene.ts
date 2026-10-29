@@ -3,7 +3,7 @@ import { CHARACTERS } from '../content/characters';
 import { whereIs } from '../content/schedules';
 import { venueById } from '../content/venues';
 import { FONT } from '../config';
-import { advance, isWeekday, MAX_WORK_ROUNDS, type GameState } from '../game/state';
+import { advance, applyEffect, describeEffect, isWeekday, MAX_WORK_ROUNDS, type Effect, type GameState } from '../game/state';
 import { createHud } from '../game/hud';
 import { DialogueBox } from '../game/dialogueBox';
 import { S, type Landmark, type MapData } from '../game/mapData';
@@ -11,15 +11,17 @@ import { getState, persist } from '../game/store';
 import { fovFor, type World3D } from '../game/world3d';
 import { getWorld } from '../game/worldHolder';
 import { hasInterior } from './InteriorScene';
-import { sfx, stopMusic } from '../game/audio';
+import { music, sfx, stopMusic } from '../game/audio';
 import { muteButton } from '../game/muteButton';
-import { currentTargets, offerQuest, onTalk, tickQuests } from '../game/quests';
+import { currentTargets, offerQuest, onTalk, onVisit, tickQuests } from '../game/quests';
 
 // Game logic works in "map pixels" (3 px = 1 m) as before; the 3D world is told positions in metres (px / S).
 const SPEED = 92; // px/s = about 30 m/s: crossing the old town takes ~20 s
 const TALK_RANGE = 52;
 const ENTER_RANGE = 120;
 const GAME_MINUTES_PER_SECOND = 4;
+const SQUARE_RADIUS = 28 * S; // the whole square, in map px: music and the hang-out button work inside it
+const HANGOUT = 'hangout'; // enterTarget value for the square, which is not a venue
 
 interface Npc { id: string; name: string; x: number; y: number; visible: boolean; index: number }
 
@@ -97,6 +99,7 @@ export class MapScene extends Phaser.Scene {
       this.npcs.push({ id: ch.id, name: ch.name, x: 0, y: 0, visible: false, index: i });
     });
 
+    this.buildSquareCrowd();
     this.buildUi(W, H);
     this.setupInput();
     this.placeFriends();
@@ -115,6 +118,7 @@ export class MapScene extends Phaser.Scene {
       this.registry.set('dist', this.w3.getDistance());
       for (const id of ['stas', ...this.npcs.map((n) => n.id)]) this.w3.setFigure(id, 0, 0, false);
       this.w3.show(false);
+      stopMusic();
       persist();
     });
 
@@ -129,9 +133,49 @@ export class MapScene extends Phaser.Scene {
           near: (id: string) => { const n = this.npcs.find((x) => x.id === id); if (n?.visible) { this.px = n.x + 24; this.py = n.y + 6; this.w3.teleportCamera(this.px / S, this.py / S); } return !!n?.visible; },
           view: () => ({ w: this.scale.width, h: this.scale.height, dist: this.w3.getDistance(), life: this.w3.streetStats() }),
           setDistance: (d: number) => this.w3.setDistance(d),
+          ui: () => ({ enter: this.enterBtn.visible ? this.enterLabel.text : '', target: this.enterTarget }),
+          enter: () => this.enterVenue(),
         },
       });
     }
+  }
+
+  /** Four small circles of bystanders on free ground around the square; they only show up in the evening. */
+  private buildSquareCrowd(): void {
+    const sq = this.landmark('square');
+    const spots: { x: number; z: number; yaw: number }[] = [];
+    for (let g = 0; g < 4; g++) {
+      const ga = (g / 4) * Math.PI * 2 + 0.6;
+      const c = this.nearestFree(sq.pos[0] * S + Math.cos(ga) * 11 * S, sq.pos[1] * S + Math.sin(ga) * 11 * S);
+      const n = g % 2 ? 3 : 4;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const p = this.nearestFree(c.x + Math.cos(a) * 2.6 * S, c.y + Math.sin(a) * 2.6 * S);
+        spots.push({ x: p.x / S, z: p.y / S, yaw: Math.atan2(c.x / S - p.x / S, c.y / S - p.y / S) });
+      }
+    }
+    this.w3.addBystanders(spots);
+  }
+
+  /** People gather on the square after 17:00, and on weekend afternoons. */
+  private squareBusy(): boolean {
+    const h = this.state.minutes / 60;
+    return h >= 17 || (!isWeekday(this.state) && h >= 13);
+  }
+
+  /** Standing around with the crowd: time passes, mood goes up, more with every friend who is there. */
+  private hangOut(): void {
+    const sq = this.landmark('square');
+    const friends = this.npcs.filter((n) => n.visible && Phaser.Math.Distance.Between(n.x, n.y, sq.pos[0] * S, sq.pos[1] * S) < SQUARE_RADIUS).length;
+    const roll = Math.random();
+    const fx: Effect = { minutes: 60, mood: 8 + friends * 4, energy: -3, satiety: -4 };
+    const lines = [friends ? `На площади ${friends} из твоих. Посидели, поболтали.` : 'Музыка, незнакомые лица, вечер. Просто постоял.'];
+    if (roll < 0.25) { lines.push('Парень с гитарой играет что-то душевное, все подпевают.'); fx.mood = (fx.mood ?? 0) + 4; }
+    else if (roll < 0.4) { lines.push('Кто-то угостил пивом. Приятно, но голова тяжелеет.'); fx.health = -1; fx.mood = (fx.mood ?? 0) + 3; }
+    else if (roll < 0.5) { lines.push('Скинулись на шаурму для компании.'); fx.money = -150; fx.satiety = 10; }
+    this.showToast([...lines, describeEffect(fx), ...applyEffect(this.state, fx), ...onVisit(this.state, 'square')]);
+    sfx.good();
+    persist();
   }
 
   private landmark(id: string): Landmark {
@@ -290,6 +334,7 @@ export class MapScene extends Phaser.Scene {
 
   private enterVenue(): void {
     if (!this.enterTarget || this.box.active) return;
+    if (this.enterTarget === HANGOUT) { this.hangOut(); return; }
     this.registry.set('mapPos', { x: this.px, y: this.py });
     this.scene.start(hasInterior(this.enterTarget) ? 'interior' : 'venue', { venueId: this.enterTarget });
   }
@@ -360,6 +405,8 @@ export class MapScene extends Phaser.Scene {
     this.refreshQuests();
     this.placeFriends();
     this.w3.setNight(this.nightAlpha());
+    const busy = this.squareBusy();
+    this.w3.setBystandersOn(busy);
     this.hint.setText(this.box.active ? '' : this.objective());
 
     let vx = 0, vy = 0;
@@ -402,11 +449,18 @@ export class MapScene extends Phaser.Scene {
     }
     this.place.setText(closest);
     this.enterTarget = venue?.id ?? null;
+    const sqm = this.landmark('square');
+    const onSquare = Phaser.Math.Distance.Between(this.px, this.py, sqm.pos[0] * S, sqm.pos[1] * S) < SQUARE_RADIUS;
+    // the square's music is only audible while the player is on it, and after the sound has been unlocked by a first tap
+    music(busy && onSquare && !this.box.active ? 'square' : '');
+    const hang = busy && onSquare && !venue;
+    if (hang) this.enterTarget = HANGOUT;
 
     const showKeys = !this.sys.game.device.input.touch;
     this.talkBtn.setVisible(!!near && !this.box.active);
-    this.enterBtn.setVisible(!!venue && !this.box.active);
+    this.enterBtn.setVisible((!!venue || hang) && !this.box.active);
     if (near) this.talkLabel.setText(`Поговорить: ${near.name}${showKeys ? '   [E]' : ''}`);
     if (venue) this.enterLabel.setText(`Зайти: ${venue.name}${near ? '' : showKeys ? '   [E]' : ''}`);
+    else if (hang) this.enterLabel.setText(`Потусоваться на площади${near ? '' : showKeys ? '   [E]' : ''}`);
   }
 }
