@@ -8,7 +8,8 @@ import { createHud } from '../game/hud';
 import { DialogueBox } from '../game/dialogueBox';
 import { S, type Landmark, type MapData } from '../game/mapData';
 import { getState, persist } from '../game/store';
-import { fovFor, World3D } from '../game/world3d';
+import { fovFor, type World3D } from '../game/world3d';
+import { getWorld } from '../game/worldHolder';
 
 // Game logic works in "map pixels" (3 px = 1 m) as before; the 3D world is told positions in metres (px / S).
 const SPEED = 92; // px/s = about 30 m/s: crossing the old town takes ~20 s
@@ -17,8 +18,6 @@ const ENTER_RANGE = 74;
 const GAME_MINUTES_PER_SECOND = 4;
 
 interface Npc { id: string; name: string; x: number; y: number; visible: boolean; index: number }
-
-let world: World3D | null = null;
 
 export class MapScene extends Phaser.Scene {
   private map!: MapData;
@@ -71,8 +70,8 @@ export class MapScene extends Phaser.Scene {
     this.clockAcc = 0;
     this.cameras.main.transparent = true; // the 3D world shows through; Phaser draws only the interface
 
-    if (!world) world = new World3D(document.getElementById('world3d') as HTMLCanvasElement, this.map);
-    this.w3 = world;
+    this.w3 = getWorld(this.map);
+    this.w3.setTitleMode(false);
     this.w3.show(true);
 
     const W = this.scale.width, H = this.scale.height;

@@ -22,6 +22,7 @@ export interface Rig {
   legL: THREE.Group;
   legR: THREE.Group;
   face: THREE.Sprite;
+  armed: boolean; // right arm raised with a cartoon pistol (title screen)
 }
 
 const lam = (c: THREE.ColorRepresentation): THREE.MeshLambertMaterial => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
@@ -198,7 +199,7 @@ export function buildRig(look: Look, headImg: HTMLImageElement | null): Rig {
   // the face disc always turns to the camera
   const face = new THREE.Sprite(new THREE.SpriteMaterial({ map: headTexture(headImg, look.skin, PHOTO_IDS.has(look.id)), transparent: true, alphaTest: 0.05, depthWrite: true }));
   face.center.set(0.5, 0.5);
-  return { root, bob, armL, armR, legL, legR, face };
+  return { root, bob, armL, armR, legL, legR, face, armed: false };
 }
 
 /** Walk cycle: legs and arms swing against each other, the body bobs. t is in radians. */
@@ -209,6 +210,20 @@ export function pose(rig: Rig, walking: boolean, t: number): void {
   rig.armL.rotation.x = -s * 0.65;
   rig.armR.rotation.x = s * 0.65;
   rig.bob.position.y = walking ? Math.abs(Math.cos(t)) * 0.16 : Math.sin(t * 0.3) * 0.04;
+  if (rig.armed) rig.armR.rotation.x = -1.4;
+}
+
+/** A chunky cartoon pistol in the right hand, arm held forward. Stylised toy shape, only for the title screen. */
+export function addGun(rig: Rig): void {
+  if (rig.armed) return;
+  rig.armed = true;
+  const g = new THREE.Group();
+  g.position.set(0, -1.5, 0);
+  const metal = lam(0x2b2f36), grip = lam(0x6a4a2a);
+  g.add(mesh(new THREE.BoxGeometry(0.3, 1.4, 0.4), metal, 0, -0.8, 0.05));
+  g.add(mesh(new THREE.BoxGeometry(0.32, 0.4, 0.66), grip, 0, -0.1, -0.38));
+  g.add(mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), lam(0xffd23a), 0, -1.55, 0.3));
+  rig.armR.add(g);
 }
 
 export const FACE_Y = HEAD_Y;

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { FONT } from '../config';
 import type { MapData } from './mapData';
-import { buildRig, DESIGN_H, FACE_Y, pose, type Rig } from './figure3d';
+import { addGun, buildRig, DESIGN_H, FACE_Y, pose, type Rig } from './figure3d';
 import { LOOKS, type Look } from './sprites';
 
 // Low-poly 3D town: OSM footprints extruded into houses, flat road ribbons, instanced trees and windows, billboard figures.
@@ -33,6 +33,11 @@ export class World3D {
   private smooth = new THREE.Vector3();
   private dist = 140;
   private readonly pitch = THREE.MathUtils.degToRad(55);
+  private titleMode = false;
+  private yaw = 0;
+  private armed = new Set<string>();
+  private cars: { g: THREE.Group; s: number; speed: number; lane: number; dir: number }[] = [];
+  private carPath: THREE.Vector3[] = [];
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
   private figures = new Map<string, Fig>();
@@ -234,6 +239,26 @@ export class World3D {
     return (((this.bits ??= Uint8Array.from(atob(this.map.blocked), (ch) => ch.charCodeAt(0)))[i >> 3] as number) & (1 << (i & 7))) !== 0;
   }
   private bits: Uint8Array | null = null;
+  private treePos: [number, number, number][] = [];
+  private trunk: THREE.InstancedMesh | null = null;
+  private crown: THREE.InstancedMesh | null = null;
+
+  /** Places every tree; trees inside the rectangle are shrunk to nothing (the title screen keeps its line-up in view). */
+  private applyTrees(ex: { x0: number; x1: number; z0: number; z1: number } | null): void {
+    if (!this.trunk || !this.crown) return;
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), axis = new THREE.Vector3(0, 1, 0);
+    this.treePos.forEach(([x, z, s], i) => {
+      const hidden = ex !== null && x > ex.x0 && x < ex.x1 && z > ex.z0 && z < ex.z1;
+      const k = hidden ? 0.0001 : s;
+      m4.compose(new THREE.Vector3(x, 0, z), q.setFromAxisAngle(axis, hash(i) * 6.28), new THREE.Vector3(k, k, k));
+      this.trunk?.setMatrixAt(i, m4);
+      this.crown?.setMatrixAt(i, m4);
+    });
+    this.trunk.instanceMatrix.needsUpdate = true;
+    this.crown.instanceMatrix.needsUpdate = true;
+  }
+
+  setTreeExclusion(ex: { x0: number; x1: number; z0: number; z1: number } | null): void { this.applyTrees(ex); }
 
   private roadMask(): (x: number, z: number) => boolean {
     const C = 3, gw = Math.ceil(this.map.width / C) + 1, gh = Math.ceil(this.map.height / C) + 1;
@@ -290,12 +315,12 @@ export class World3D {
     if (!pos.length) return;
     const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.35, 0.5, 2.4, 5).translate(0, 1.2, 0), new THREE.MeshLambertMaterial({ color: 0x6a4a30 }), pos.length);
     const crown = new THREE.InstancedMesh(new THREE.ConeGeometry(2.7, 7, 6).translate(0, 5.4, 0), new THREE.MeshLambertMaterial({ color: 0xffffff }), pos.length);
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), c = new THREE.Color();
-    pos.forEach(([x, z, s], i) => {
-      m4.compose(new THREE.Vector3(x, 0, z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), hash(i) * 6.28), new THREE.Vector3(s, s, s));
-      trunk.setMatrixAt(i, m4); crown.setMatrixAt(i, m4);
-      crown.setColorAt(i, c.setHSL(0.33 + hash(i + 3) * 0.04, 0.45, 0.2 + hash(i + 9) * 0.1));
-    });
+    const c = new THREE.Color();
+    pos.forEach((_p, i) => crown.setColorAt(i, c.setHSL(0.33 + hash(i + 3) * 0.04, 0.45, 0.2 + hash(i + 9) * 0.1)));
+    this.treePos = pos;
+    this.trunk = trunk;
+    this.crown = crown;
+    this.applyTrees(null);
     trunk.renderOrder = 22; crown.renderOrder = 22;
     this.scene.add(trunk, crown);
   }
@@ -393,6 +418,7 @@ export class World3D {
     rig.face.visible = f.visible;
     this.scene.add(rig.root, rig.face);
     f.rig = rig;
+    if (this.armed.has(id)) addGun(rig);
   }
 
   /** Creates (once) a standing person; positions and walking are set with setFigure(). */
@@ -419,6 +445,59 @@ export class World3D {
     f.shadow.position.set(x, 0.2, z);
     f.shadow.visible = visible;
     if (f.rig) { f.rig.root.visible = visible; f.rig.face.visible = visible; }
+  }
+
+  // --- title screen: orbiting camera, cars on a street, armed heroes ------------------------------
+  setTitleMode(on: boolean): void { this.titleMode = on; if (!on) { this.yaw = 0; this.clearCars(); this.applyTrees(null); } }
+  setYaw(a: number): void { this.yaw = a; }
+
+  armFigure(id: string): void {
+    this.armed.add(id);
+    const f = this.figures.get(id);
+    if (f?.rig) addGun(f.rig);
+  }
+
+  clearCars(): void {
+    for (const c of this.cars) this.scene.remove(c.g);
+    this.cars = [];
+    this.carPath = [];
+  }
+
+  /** Cheerful low-poly cars drive back and forth along a straight street segment (x, z in metres). */
+  spawnCars(a: [number, number], b: [number, number], count: number): void {
+    this.clearCars();
+    this.carPath = [new THREE.Vector3(a[0], 0, a[1]), new THREE.Vector3(b[0], 0, b[1])];
+    const colors = [0xd8352f, 0xf2c230, 0x2f7de1, 0xf2f2f2, 0x1f1f24, 0x3fae5a, 0xe86a1f];
+    for (let i = 0; i < count; i++) {
+      const g = new THREE.Group();
+      const body = new THREE.MeshLambertMaterial({ color: colors[i % colors.length], flatShading: true });
+      const glass = new THREE.MeshLambertMaterial({ color: 0x8fb4d4, flatShading: true });
+      const tyre = new THREE.MeshLambertMaterial({ color: 0x15151a, flatShading: true });
+      const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number): THREE.Mesh => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); g.add(o); return o; };
+      add(new THREE.BoxGeometry(2.1, 0.9, 4.4), body, 0, 0.85, 0);
+      add(new THREE.BoxGeometry(1.8, 0.8, 2.3), glass, 0, 1.65, -0.15);
+      add(new THREE.BoxGeometry(1.9, 0.12, 2.2), body, 0, 2.1, -0.15);
+      for (const [x, z] of [[-1.1, 1.4], [1.1, 1.4], [-1.1, -1.4], [1.1, -1.4]] as [number, number][]) { const w = add(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 10), tyre, x, 0.5, z); w.rotation.z = Math.PI / 2; }
+      for (const x of [-0.7, 0.7]) add(new THREE.BoxGeometry(0.4, 0.25, 0.1), new THREE.MeshBasicMaterial({ color: 0xfff1b0 }), x, 0.95, 2.2);
+      g.traverse((o) => { o.renderOrder = 25; });
+      this.scene.add(g);
+      this.cars.push({ g, s: (i / count) * 2, speed: 14 + (i % 3) * 5, lane: i % 2 === 0 ? 3.2 : -3.2, dir: i % 2 === 0 ? 1 : -1 });
+    }
+  }
+
+  private updateCars(dt: number): void {
+    if (this.carPath.length < 2) return;
+    const a = this.carPath[0] as THREE.Vector3, b = this.carPath[1] as THREE.Vector3;
+    const len = a.distanceTo(b);
+    const dx = (b.x - a.x) / len, dz = (b.z - a.z) / len;
+    for (const c of this.cars) {
+      c.s += (c.speed * dt) / len;
+      const t = c.s % 2; // 0..1 forward, 1..2 back
+      const u = t < 1 ? t : 2 - t;
+      const fwd = t < 1 ? 1 : -1;
+      c.g.position.set(a.x + (b.x - a.x) * u - dz * c.lane * fwd, 0, a.z + (b.z - a.z) * u + dx * c.lane * fwd);
+      c.g.rotation.y = Math.atan2(dx * fwd, dz * fwd);
+    }
   }
 
   // --- camera, light, frame ----------------------------------------------------------------------
@@ -455,13 +534,14 @@ export class World3D {
   update(dt: number): void {
     this.smooth.lerp(this.target, 1 - Math.exp(-dt * 6));
     const d = this.dist;
-    this.camera.position.set(this.smooth.x, this.smooth.y + Math.sin(this.pitch) * d, this.smooth.z + Math.cos(this.pitch) * d);
+    const pitch = this.titleMode ? THREE.MathUtils.degToRad(33) : this.pitch;
+    this.camera.position.set(this.smooth.x + Math.sin(this.yaw) * Math.cos(pitch) * d, this.smooth.y + Math.sin(pitch) * d, this.smooth.z + Math.cos(this.yaw) * Math.cos(pitch) * d);
     this.camera.lookAt(this.smooth);
     (this.scene.fog as THREE.Fog).near = d * 2.2;
     (this.scene.fog as THREE.Fog).far = d * 9;
 
     // people keep a readable size however high the camera is
-    const figH = Math.max(7.2, d * 0.085);
+    const figH = this.titleMode ? 8.6 : Math.max(7.2, d * 0.085);
     const s = figH / DESIGN_H;
     const k = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const hpx = this.canvas.clientHeight || window.innerHeight;
@@ -484,7 +564,7 @@ export class World3D {
         rig.face.scale.setScalar(2.6 * s);
       }
       if (f.tag) {
-        f.tag.visible = f.visible && d <= 700;
+        f.tag.visible = f.visible && d <= 700 && !this.titleMode;
         f.tag.position.set(f.x, figH + 1.2 * s, f.z);
         const ts = f.tag.userData as { aspect: number };
         const sy = (24 / hpx) * k;
@@ -494,11 +574,12 @@ export class World3D {
     for (const t of this.tags) {
       if (t.kind === 'name') continue; // friends' name tags follow their figures above
       // far away only the important plates stay, otherwise the centre turns into a heap of labels
-      t.sprite.visible = t.kind === 'shop' ? d < 430 : true;
+      t.sprite.visible = !this.titleMode && (t.kind === 'shop' ? d < 430 : true);
       const ts = t.sprite.userData as { aspect: number };
       const sy = (t.px / hpx) * k;
       t.sprite.scale.set(sy * ts.aspect, sy, 1);
     }
+    this.updateCars(dt);
     this.renderer.render(this.scene, this.camera);
   }
 }
