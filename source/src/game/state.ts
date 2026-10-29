@@ -17,6 +17,7 @@ export interface GameState {
   workedToday: number;
   passOuts: number;
   ended: EndingId | null;
+  nextEventAt?: number;
   quests?: { active: { id: string; step: number; until: number }[]; done: string[]; failed: string[] };
 }
 
