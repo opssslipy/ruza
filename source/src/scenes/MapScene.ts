@@ -10,11 +10,12 @@ import { S, type Landmark, type MapData } from '../game/mapData';
 import { getState, persist } from '../game/store';
 import { fovFor, type World3D } from '../game/world3d';
 import { getWorld } from '../game/worldHolder';
+import { hasInterior } from './InteriorScene';
 
 // Game logic works in "map pixels" (3 px = 1 m) as before; the 3D world is told positions in metres (px / S).
 const SPEED = 92; // px/s = about 30 m/s: crossing the old town takes ~20 s
 const TALK_RANGE = 52;
-const ENTER_RANGE = 74;
+const ENTER_RANGE = 120;
 const GAME_MINUTES_PER_SECOND = 4;
 
 interface Npc { id: string; name: string; x: number; y: number; visible: boolean; index: number }
@@ -280,7 +281,7 @@ export class MapScene extends Phaser.Scene {
   private enterVenue(): void {
     if (!this.enterTarget || this.box.active) return;
     this.registry.set('mapPos', { x: this.px, y: this.py });
-    this.scene.start('venue', { venueId: this.enterTarget });
+    this.scene.start(hasInterior(this.enterTarget) ? 'interior' : 'venue', { venueId: this.enterTarget });
   }
 
   private showToast(msgs: string[]): void {

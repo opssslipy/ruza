@@ -203,7 +203,13 @@ export function buildRig(look: Look, headImg: HTMLImageElement | null): Rig {
 }
 
 /** Walk cycle: legs and arms swing against each other, the body bobs. t is in radians. */
-export function pose(rig: Rig, walking: boolean, t: number): void {
+export function pose(rig: Rig, walking: boolean, t: number, sitting = false): void {
+  if (sitting) { // legs forward, hands on the knees, a little breathing
+    rig.legL.rotation.x = -1.45; rig.legR.rotation.x = -1.45;
+    rig.armL.rotation.x = -0.55; rig.armR.rotation.x = rig.armed ? -1.4 : -0.55;
+    rig.bob.position.y = -0.45 + Math.sin(t * 0.8) * 0.03;
+    return;
+  }
   const s = walking ? Math.sin(t) : 0;
   rig.legL.rotation.x = s * 0.75;
   rig.legR.rotation.x = -s * 0.75;

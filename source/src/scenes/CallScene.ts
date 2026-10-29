@@ -66,7 +66,7 @@ export class CallScene extends Phaser.Scene {
     this.ui.push(this.add.text(GAME_WIDTH / 2, 330, lines.join('\n'), { fontFamily: FONT, fontSize: '20px', color: '#ffffff', align: 'center', wordWrap: { width: GAME_WIDTH - 60 } }).setOrigin(0.5));
     const back = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT - 100, GAME_WIDTH - 80, 60, 0x3a7a4a).setInteractive({ useHandCursor: true });
     this.ui.push(back, this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 100, 'Вернуться', { fontFamily: FONT, fontSize: '22px', color: '#ffffff' }).setOrigin(0.5));
-    back.on('pointerdown', () => this.scene.start(s.ended ? 'end' : 'venue', { venueId: 'home' }));
+    back.on('pointerdown', () => this.scene.start(s.ended ? 'end' : 'interior', { venueId: 'home' }));
   }
 }
 

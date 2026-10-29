@@ -15,7 +15,7 @@ const WALL = [0xd9d0bf, 0xe6dccb, 0xe8d9b0, 0xcfd8e2, 0xcfcfcf];
 const FOV = 32; // narrow lens: less perspective distortion at the edges of the screen
 export const fovFor = (aspect: number): number => (aspect < 1 ? 48 : FOV);
 
-interface Fig { rig: Rig | null; shadow: THREE.Mesh; tag: THREE.Sprite | null; visible: boolean; moving: boolean; x: number; z: number; yaw: number; targetYaw: number; t: number }
+interface Fig { sitting: boolean; rig: Rig | null; shadow: THREE.Mesh; tag: THREE.Sprite | null; visible: boolean; moving: boolean; x: number; z: number; yaw: number; targetYaw: number; t: number }
 interface Tag { sprite: THREE.Sprite; px: number; kind: 'landmark' | 'shop' | 'name' }
 
 function hash(n: number): number {
@@ -33,6 +33,11 @@ export class World3D {
   private smooth = new THREE.Vector3();
   private dist = 140;
   private readonly pitch = THREE.MathUtils.degToRad(55);
+  readonly city = new THREE.Group();
+  private inInterior = false;
+  private interior: THREE.Group | null = null;
+  private idist = 52;
+  private savedFog: THREE.Fog | null = null;
   private titleMode = false;
   private yaw = 0;
   private armed = new Set<string>();
@@ -59,7 +64,7 @@ export class World3D {
     this.hemi = new THREE.HemisphereLight(0xeaf2ff, 0xb9ac8c, 2.3);
     this.sun = new THREE.DirectionalLight(0xfff0d6, 2.4);
     this.sun.position.set(-0.6, 1, 0.5);
-    this.scene.add(this.hemi, this.sun);
+    this.scene.add(this.hemi, this.sun, this.city);
 
     this.buildGround();
     this.buildBuildings();
@@ -76,7 +81,7 @@ export class World3D {
     this.flatMats.push({ m: mat, base: new THREE.Color(color) });
     const m = new THREE.Mesh(geo, mat);
     m.renderOrder = order;
-    this.scene.add(m);
+    this.city.add(m);
   }
 
   private polyGeo(p: number[], y: number): THREE.BufferGeometry | null {
@@ -123,7 +128,7 @@ export class World3D {
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(m.width / 2, 0, m.height / 2);
     ground.renderOrder = 0;
-    this.scene.add(ground);
+    this.city.add(ground);
 
     const merge = (geos: (THREE.BufferGeometry | null)[]): THREE.BufferGeometry | null => {
       const ok = geos.filter((g): g is THREE.BufferGeometry => g !== null).map((g) => g.toNonIndexed());
@@ -198,7 +203,7 @@ export class World3D {
     if (geos.length) {
       const mesh = new THREE.Mesh(mergeGeometries(geos) as THREE.BufferGeometry, new THREE.MeshLambertMaterial({ vertexColors: true }));
       mesh.renderOrder = 20;
-      this.scene.add(mesh);
+      this.city.add(mesh);
     }
     const count = win.length / 4;
     if (count) {
@@ -214,7 +219,7 @@ export class World3D {
       }
       im.renderOrder = 21;
       this.windows = im;
-      this.scene.add(im);
+      this.city.add(im);
       this.paintWindows(0);
     }
   }
@@ -322,7 +327,7 @@ export class World3D {
     this.crown = crown;
     this.applyTrees(null);
     trunk.renderOrder = 22; crown.renderOrder = 22;
-    this.scene.add(trunk, crown);
+    this.city.add(trunk, crown);
   }
 
   // --- labels (street names on the ground, name plates in the air) ------------------------------------
@@ -353,7 +358,7 @@ export class World3D {
     s.renderOrder = 40;
     s.userData = { aspect: p.w / p.h };
     this.tags.push({ sprite: s, px: bold ? 26 : 20, kind });
-    this.scene.add(s);
+    (kind === 'name' ? this.scene : this.city).add(s);
     return s;
   }
 
@@ -387,7 +392,7 @@ export class World3D {
       m.rotation.z = s.a; // along the road
       m.position.set(s.x, 0.15, s.y);
       m.renderOrder = 15;
-      this.scene.add(m);
+      this.city.add(m);
     }
   }
 
@@ -430,17 +435,17 @@ export class World3D {
     shadow.visible = false;
     const tag = name ? this.addTag(name, '#ffffff', 0, 0, 0, true, 'name') : null;
     if (tag) { tag.visible = false; (tag.material as THREE.SpriteMaterial).depthTest = false; tag.renderOrder = 50; }
-    const fig: Fig = { rig: null, shadow, tag, visible: false, moving: false, x: 0, z: 0, yaw: 0, targetYaw: 0, t: 0 };
+    const fig: Fig = { sitting: false, rig: null, shadow, tag, visible: false, moving: false, x: 0, z: 0, yaw: 0, targetYaw: 0, t: 0 };
     this.figures.set(id, fig);
     this.scene.add(shadow);
     this.ensureRig(fig, id);
   }
 
   /** yaw: direction the person faces in radians (0 = towards the camera/south); omit to keep the current one. */
-  setFigure(id: string, x: number, z: number, visible: boolean, moving = false, yaw?: number): void {
+  setFigure(id: string, x: number, z: number, visible: boolean, moving = false, yaw?: number, sitting = false): void {
     const f = this.figures.get(id);
     if (!f) return;
-    f.x = x; f.z = z; f.visible = visible; f.moving = moving;
+    f.x = x; f.z = z; f.visible = visible; f.moving = moving; f.sitting = sitting;
     if (yaw !== undefined) f.targetYaw = yaw;
     f.shadow.position.set(x, 0.2, z);
     f.shadow.visible = visible;
@@ -458,7 +463,7 @@ export class World3D {
   }
 
   clearCars(): void {
-    for (const c of this.cars) this.scene.remove(c.g);
+    for (const c of this.cars) this.city.remove(c.g);
     this.cars = [];
     this.carPath = [];
   }
@@ -480,7 +485,7 @@ export class World3D {
       for (const [x, z] of [[-1.1, 1.4], [1.1, 1.4], [-1.1, -1.4], [1.1, -1.4]] as [number, number][]) { const w = add(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 10), tyre, x, 0.5, z); w.rotation.z = Math.PI / 2; }
       for (const x of [-0.7, 0.7]) add(new THREE.BoxGeometry(0.4, 0.25, 0.1), new THREE.MeshBasicMaterial({ color: 0xfff1b0 }), x, 0.95, 2.2);
       g.traverse((o) => { o.renderOrder = 25; });
-      this.scene.add(g);
+      this.city.add(g);
       this.cars.push({ g, s: (i / count) * 2, speed: 14 + (i % 3) * 5, lane: i % 2 === 0 ? 3.2 : -3.2, dir: i % 2 === 0 ? 1 : -1 });
     }
   }
@@ -500,19 +505,53 @@ export class World3D {
     }
   }
 
+  // --- inside a building ---------------------------------------------------------------------------
+  /** Shows a room instead of the town: its own light, no fog, camera closer. */
+  enterInterior(room: THREE.Group, bg: number, mood?: { sky: number; ground: number; i: number }): void {
+    this.leaveInterior();
+    this.interior = room;
+    this.scene.add(room);
+    this.city.visible = false;
+    this.inInterior = true;
+    this.savedFog = this.scene.fog as THREE.Fog | null;
+    this.scene.fog = null;
+    this.scene.background = new THREE.Color(bg);
+    this.hemi.color.set(mood?.sky ?? 0xb7a4ff);
+    this.hemi.groundColor.set(mood?.ground ?? 0x3a2a4a);
+    this.hemi.intensity = mood?.i ?? 1.25;
+    this.sun.intensity = 0.3;
+    this.idist = 96;
+    for (const f of this.figures.values()) { f.visible = false; if (f.rig) { f.rig.root.visible = false; f.rig.face.visible = false; } f.shadow.visible = false; if (f.tag) f.tag.visible = false; }
+  }
+
+  leaveInterior(): void {
+    if (!this.inInterior) return;
+    if (this.interior) {
+      this.scene.remove(this.interior);
+      this.interior.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose?.(); });
+    }
+    this.interior = null;
+    this.inInterior = false;
+    this.city.visible = true;
+    if (this.savedFog) this.scene.fog = this.savedFog;
+    this.hemi.groundColor.set(0xb9ac8c);
+    for (const f of this.figures.values()) { f.visible = false; f.sitting = false; if (f.rig) { f.rig.root.visible = false; f.rig.face.visible = false; } f.shadow.visible = false; }
+  }
+
   // --- camera, light, frame ----------------------------------------------------------------------
   setTarget(x: number, z: number): void { this.target.set(x, 0, z); }
   teleportCamera(x: number, z: number): void { this.target.set(x, 0, z); this.smooth.copy(this.target); }
-  setDistance(d: number): void { this.dist = Math.max(45, Math.min(1500, d)); }
-  getDistance(): number { return this.dist; }
+  setDistance(d: number): void { if (this.inInterior) this.idist = Math.max(30, Math.min(120, d)); else this.dist = Math.max(45, Math.min(1500, d)); }
+  getDistance(): number { return this.inInterior ? this.idist : this.dist; }
 
   /** night: 0 = day, 1 = deep night. */
   setNight(a: number): void {
+    if (this.inInterior) return; // the room has its own light
     const k = Math.max(0, Math.min(1, a / 0.65));
     const day = new THREE.Color(0xcfe3f1), night = new THREE.Color(0x0e1530);
     const sky = day.clone().lerp(night, k);
     this.scene.background = sky;
-    (this.scene.fog as THREE.Fog).color.copy(sky);
+    if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(sky);
     this.hemi.intensity = 2.3 - 1.5 * k;
     this.hemi.color.set(0xeaf2ff).lerp(new THREE.Color(0x4a5a90), k);
     this.sun.intensity = 2.4 - 2.1 * k;
@@ -533,15 +572,14 @@ export class World3D {
 
   update(dt: number): void {
     this.smooth.lerp(this.target, 1 - Math.exp(-dt * 6));
-    const d = this.dist;
-    const pitch = this.titleMode ? THREE.MathUtils.degToRad(33) : this.pitch;
+    const d = this.inInterior ? this.idist : this.dist;
+    const pitch = this.inInterior ? THREE.MathUtils.degToRad(57) : this.titleMode ? THREE.MathUtils.degToRad(33) : this.pitch;
     this.camera.position.set(this.smooth.x + Math.sin(this.yaw) * Math.cos(pitch) * d, this.smooth.y + Math.sin(pitch) * d, this.smooth.z + Math.cos(this.yaw) * Math.cos(pitch) * d);
     this.camera.lookAt(this.smooth);
-    (this.scene.fog as THREE.Fog).near = d * 2.2;
-    (this.scene.fog as THREE.Fog).far = d * 9;
+    if (this.scene.fog) { (this.scene.fog as THREE.Fog).near = d * 2.2; (this.scene.fog as THREE.Fog).far = d * 9; }
 
     // people keep a readable size however high the camera is
-    const figH = this.titleMode ? 8.6 : Math.max(7.2, d * 0.085);
+    const figH = this.inInterior ? 6.6 : this.titleMode ? 8.6 : Math.max(7.2, d * 0.085);
     const s = figH / DESIGN_H;
     const k = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const hpx = this.canvas.clientHeight || window.innerHeight;
@@ -557,7 +595,7 @@ export class World3D {
         rig.root.position.set(f.x, 0, f.z);
         rig.root.rotation.y = f.yaw;
         rig.root.scale.setScalar(s);
-        pose(rig, f.moving, f.t);
+        pose(rig, f.moving, f.t, f.sitting);
         const head = new THREE.Vector3(f.x, (FACE_Y + rig.bob.position.y) * s, f.z);
         toCam.copy(this.camera.position).sub(head).normalize();
         rig.face.position.copy(head).addScaledVector(toCam, 0.8 * s);
