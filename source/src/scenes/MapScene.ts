@@ -283,9 +283,9 @@ export class MapScene extends Phaser.Scene {
 
   // --- UI ------------------------------------------------------------------------------------------
   private button(W: number, y: number, color: number): { box: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; c: Phaser.GameObjects.Container } {
-    const bw = Math.min(W - 60, 420);
-    const box = this.add.rectangle(0, 0, bw, 50, color).setStrokeStyle(2, 0xffffff, 0.6).setInteractive({ useHandCursor: true });
-    const label = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '18px', color: '#fff' }).setOrigin(0.5);
+    const bw = Math.min(W - 110, 300);
+    const box = this.add.rectangle(0, 0, bw, 36, color).setStrokeStyle(2, 0xffffff, 0.6).setInteractive({ useHandCursor: true });
+    const label = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '14px', color: '#fff' }).setOrigin(0.5);
     const c = this.add.container(W / 2, y, [box, label]).setDepth(110).setVisible(false);
     return { box, label, c };
   }
@@ -299,17 +299,17 @@ export class MapScene extends Phaser.Scene {
     this.hud = createHud(this, this.state, { width: W });
     this.place = this.add.text(W / 2, 70, '', { fontFamily: FONT, fontSize: '16px', fontStyle: 'bold', color: '#ffffff', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(100);
     this.quest = this.add.text(W / 2, 92, '', { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: '#ffd23a', stroke: '#000', strokeThickness: 4, align: 'center', wordWrap: { width: W - 90 } }).setOrigin(0.5, 0).setDepth(100);
-    this.hint = this.add.text(W / 2, H - 38, '', { fontFamily: FONT, fontSize: '13px', color: '#ffe08a', stroke: '#000', strokeThickness: 3, align: 'center', wordWrap: { width: W - 20 } }).setOrigin(0.5).setDepth(100);
-    this.add.text(8, H - 14, '© OpenStreetMap contributors', { fontFamily: FONT, fontSize: '10px', color: '#ffffff', stroke: '#000', strokeThickness: 3 }).setOrigin(0, 1).setDepth(100);
+    this.hint = this.add.text(W / 2, H - 104, '', { fontFamily: FONT, fontSize: '13px', color: '#ffe08a', stroke: '#000', strokeThickness: 3, align: 'center', wordWrap: { width: W - 20 } }).setOrigin(0.5).setDepth(100);
+    this.add.text(8, H - 3, '© OpenStreetMap contributors', { fontFamily: FONT, fontSize: '10px', color: '#ffffff', stroke: '#000', strokeThickness: 3 }).setOrigin(0, 1).setDepth(100);
     this.toast = this.add.text(W / 2, 120, '', { fontFamily: FONT, fontSize: '15px', color: '#fff', backgroundColor: '#000000cc', padding: { x: 10, y: 6 }, align: 'center', wordWrap: { width: Math.min(W - 40, 520) } }).setOrigin(0.5, 0).setDepth(120).setVisible(false);
 
     this.stickBase = this.add.circle(0, 0, 54, 0xffffff, 0.2).setDepth(105).setVisible(false);
     this.stickKnob = this.add.circle(0, 0, 26, 0xffffff, 0.5).setDepth(106).setVisible(false);
 
-    const talk = this.button(W, H - 74, 0x2b3a55);
+    const talk = this.button(W, H - 30, 0x2b3a55);
     this.talkBtn = talk.c; this.talkLabel = talk.label;
     talk.box.on('pointerdown', () => this.startTalk());
-    const enter = this.button(W, H - 130, 0x2b6a3a);
+    const enter = this.button(W, H - 72, 0x2b6a3a);
     this.enterBtn = enter.c; this.enterLabel = enter.label;
     enter.box.on('pointerdown', () => this.enterVenue());
 

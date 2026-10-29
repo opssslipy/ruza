@@ -69,3 +69,11 @@ NEXT (not done): street events and small quests on the map, sound, performance c
 Done: (1) people and cars keep real size when the camera zooms (they no longer grow when zooming out). (2) Quests (src/game/quests.ts, 6 draft errands from the friends: Diana's parcel, Lev's interview, Bara's eyes and ears, Belka's shawarma, Karina's beer, Timur's car): a friend offers one after a conversation where Stas helped, the target glows on the map with a yellow beam and plate, the top line shows the current step and hours left, visiting a venue / using a venue action / talking to a person completes steps, reward on completion, penalty on timeout, max 3 at a time. (3) Rhythm mini-games for the gym (5 reps) and the dance floors of Ruzvelt/Mixbar (4-6 beats) adding a bonus to the plain action. (4) Sound without files (Web Audio): UI/mini-game blips, coin, hookah puff, quest jingle, lounge music in The Dym, beat in the clubs, mute button.
 Tests 38/38; headless Edge: quest offered -> visit -> step 2, gym and club mini-games, play-through, no console errors. Not verified: how sound feels on a real device, phone speed.
 OPEN: quest texts and rewards are drafts; more quests and street events; other venues have no mini-game yet.
+
+## Checkpoint 2026-10-29 (update 9)
+- Done: Stas face photo (refs-private/cropped/stas.png, 'stas' in PHOTO_IDS in figure3d.ts); garage spawn fix + tests/spawn.test.ts;
+  evening hang-out on Partisan square + fountain (bystanders, 'square' music, "Потусоваться" action); action buttons moved to the bottom,
+  "Друзья" moved to the top right; random street events (src/game/events.ts, panel in MapScene.showEvent, keys 1-3).
+- Tests: 53 passing. Live: https://opssslipy.github.io/ruza/ ; artifact version 9.
+- OPEN: independent clean-context review not done yet; sound never heard by a human on a phone; event texts are drafts;
+  descriptions for Petya/Bezuk/Demon/Korun/Kryazh/Minyucha; photos of Bara and Shatruha.

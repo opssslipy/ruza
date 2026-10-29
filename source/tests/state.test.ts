@@ -7,25 +7,26 @@ import { CALLS } from '../src/content/calls';
 import { CHARACTERS } from '../src/content/characters';
 
 describe('needs and time', () => {
-  it('starts hungry on Monday morning', () => {
+  it('starts not yet hungry on Monday morning, but not full either', () => {
     const s = newGame();
-    expect(s.satiety).toBeLessThan(50);
+    expect(s.satiety).toBeGreaterThanOrEqual(35);
+    expect(s.satiety).toBeLessThan(70);
     expect(s.day).toBe(0);
     expect(s.money).toBe(START_MONEY);
   });
 
-  it('doing nothing makes Stas starve and pass out within a day or two', () => {
+  it('doing nothing makes Stas starve and pass out within two days', () => {
     const s = newGame();
-    const msgs = advance(s, 24 * 60);
+    const msgs = advance(s, 2 * 24 * 60);
     expect(s.satiety).toBe(0);
     expect(s.passOuts).toBeGreaterThan(0);
     expect(msgs.some((m) => m.includes('вырубился'))).toBe(true);
     expect(s.health).toBeLessThan(90);
   });
 
-  it('doing nothing for three days ends with the banka ending', () => {
+  it('doing nothing for the whole week ends with the banka ending, not with a happy week', () => {
     const s = newGame();
-    advance(s, 3 * 24 * 60);
+    advance(s, 7 * 24 * 60);
     expect(s.ended).toBe('banka');
   });
 
@@ -109,5 +110,26 @@ describe('content consistency', () => {
       expect(c.good).toBeLessThan(c.options.length);
     }
     expect(CALLS.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('balance: a sensible player survives the week without constant hunger', () => {
+  it('eating when "hungry" (< 35) and sleeping at night: at most 3 meals a day, never fainting, healthy at the end', () => {
+    const s = newGame();
+    s.money = 1_000_000; // money is balanced by work calls elsewhere; this test is about the needs only
+    let meals = 0, maxDailyMeals = 0, dayMeals = 0, lastDay = 0, minSat = 100;
+    for (let guard = 0; guard < 7 * 24 * 60 && !s.ended; guard++) {
+      advance(s, 1);
+      if (s.day !== lastDay) { lastDay = s.day; maxDailyMeals = Math.max(maxDailyMeals, dayMeals); dayMeals = 0; }
+      minSat = Math.min(minSat, s.satiety);
+      if (s.satiety < 35) { applyEffect(s, { satiety: 40, minutes: 20 }); meals++; dayMeals++; }
+      if (s.minutes >= 23 * 60 && s.minutes < 23 * 60 + 5) sleepAtHome(s, 8);
+    }
+    expect(s.ended).toBe('week');
+    expect(s.passOuts).toBe(0);
+    expect(s.health).toBeGreaterThan(80);
+    expect(maxDailyMeals).toBeLessThanOrEqual(3);
+    expect(meals).toBeLessThanOrEqual(7 * 3);
+    expect(minSat).toBeGreaterThan(20);
   });
 });

@@ -41,7 +41,7 @@ const clamp = (n: number): number => Math.max(0, Math.min(100, n));
 export function newGame(): GameState {
   return {
     day: 0, minutes: 8 * 60 + 30,
-    satiety: 40, energy: 70, mood: 60, health: 90, wanted: 0, money: START_MONEY,
+    satiety: 55, energy: 70, mood: 60, health: 90, wanted: 0, money: START_MONEY,
     talked: [], talkedDay: {}, workedToday: 0, passOuts: 0, ended: null, quests: { active: [], done: [], failed: [] },
   };
 }
@@ -61,14 +61,15 @@ export function advance(s: GameState, mins: number, mode: SleepMode = 'awake'): 
   for (let i = 0; i < mins && !s.ended; i++) {
     s.minutes += 1;
     if (mode === 'awake') {
-      s.satiety = clamp(s.satiety - 0.09);
-      s.energy = clamp(s.energy - 0.07);
+      // tuned so that one meal lasts about half a game day: hunger below 35 shows after ~8 hours without food
+      s.satiety = clamp(s.satiety - 0.04);
+      s.energy = clamp(s.energy - 0.05);
       s.mood = clamp(s.mood - (s.satiety < 20 || s.energy < 20 ? 0.06 : 0.01));
     } else {
-      s.satiety = clamp(s.satiety - 0.05);
+      s.satiety = clamp(s.satiety - 0.02);
       s.energy = clamp(s.energy + (mode === 'sleep' ? 0.2 : 0.08));
     }
-    if (s.satiety <= 0 || (mode === 'awake' && s.energy <= 0)) s.health = clamp(s.health - 0.12);
+    if (s.satiety <= 0 || (mode === 'awake' && s.energy <= 0)) s.health = clamp(s.health - 0.06);
     else if (s.satiety > 50 && s.energy > 40) s.health = clamp(s.health + 0.01);
 
     if (s.minutes >= 24 * 60) {
