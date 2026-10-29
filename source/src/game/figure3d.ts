@@ -57,7 +57,7 @@ function tattooMaterial(skin: string, seed: number): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial({ map: t, flatShading: true });
 }
 
-const PHOTO_IDS = new Set(['lev', 'timur', 'diana', 'anyaartem', 'belka', 'karina']);
+const PHOTO_IDS = new Set(['stas', 'lev','timur', 'diana', 'anyaartem', 'belka', 'karina']);
 
 /** The head disc: the portrait clipped to a circle with a dark rim. */
 function headTexture(img: HTMLImageElement | null, skin: string, photo: boolean): THREE.CanvasTexture {

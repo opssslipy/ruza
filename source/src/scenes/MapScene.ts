@@ -142,11 +142,13 @@ export class MapScene extends Phaser.Scene {
 
   /** Four small circles of bystanders on free ground around the square; they only show up in the evening. */
   private buildSquareCrowd(): void {
-    const sq = this.landmark('square');
+    const sq = this.landmark('square'), fo = this.landmark('fountain');
     const spots: { x: number; z: number; yaw: number }[] = [];
-    for (let g = 0; g < 4; g++) {
-      const ga = (g / 4) * Math.PI * 2 + 0.6;
-      const c = this.nearestFree(sq.pos[0] * S + Math.cos(ga) * 11 * S, sq.pos[1] * S + Math.sin(ga) * 11 * S);
+    // two circles on the square itself and two by the fountain next to it
+    const centres: [Landmark, number, number][] = [[sq, 0.6, 11], [sq, 3.7, 11], [fo, 1.2, 9], [fo, 4.3, 9]];
+    for (let g = 0; g < centres.length; g++) {
+      const [lm, ga, rad] = centres[g] as [Landmark, number, number];
+      const c = this.nearestFree(lm.pos[0] * S + Math.cos(ga) * rad * S, lm.pos[1] * S + Math.sin(ga) * rad * S);
       const n = g % 2 ? 3 : 4;
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2;
@@ -406,7 +408,7 @@ export class MapScene extends Phaser.Scene {
     this.placeFriends();
     this.w3.setNight(this.nightAlpha());
     const busy = this.squareBusy();
-    this.w3.setBystandersOn(busy);
+    this.w3.setBystandersLevel(busy ? 2 : 1);
     this.hint.setText(this.box.active ? '' : this.objective());
 
     let vx = 0, vy = 0;
@@ -450,7 +452,8 @@ export class MapScene extends Phaser.Scene {
     this.place.setText(closest);
     this.enterTarget = venue?.id ?? null;
     const sqm = this.landmark('square');
-    const onSquare = Phaser.Math.Distance.Between(this.px, this.py, sqm.pos[0] * S, sqm.pos[1] * S) < SQUARE_RADIUS;
+    const fom = this.landmark('fountain');
+    const onSquare = Phaser.Math.Distance.Between(this.px, this.py, sqm.pos[0] * S, sqm.pos[1] * S) < SQUARE_RADIUS || Phaser.Math.Distance.Between(this.px, this.py, fom.pos[0] * S, fom.pos[1] * S) < 18 * S;
     // the square's music is only audible while the player is on it, and after the sound has been unlocked by a first tap
     music(busy && onSquare && !this.box.active ? 'square' : '');
     const hang = busy && onSquare && !venue;
