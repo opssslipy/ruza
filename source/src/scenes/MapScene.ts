@@ -13,6 +13,7 @@ import { getWorld } from '../game/worldHolder';
 import { hasInterior } from './InteriorScene';
 import { music, sfx, stopMusic } from '../game/audio';
 import { muteButton } from '../game/muteButton';
+import { EVENTS, eventDue, resolveEvent, rollEvent, type EventDef } from '../game/events';
 import { currentTargets, offerQuest, onTalk, onVisit, tickQuests } from '../game/quests';
 
 // Game logic works in "map pixels" (3 px = 1 m) as before; the 3D world is told positions in metres (px / S).
@@ -57,6 +58,9 @@ export class MapScene extends Phaser.Scene {
   private pinch = 0;
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingResize = false;
+  private evObjs: Phaser.GameObjects.GameObject[] = [];
+  private evChoose: (() => void)[] = []; // what keys 1-3 do while a random event is on screen
+  private get paused(): boolean { return this.box.active || this.evObjs.length > 0; }
 
   constructor() {
     super('map');
@@ -108,7 +112,7 @@ export class MapScene extends Phaser.Scene {
 
     const onResize = (): void => {
       if (this.resizeTimer) clearTimeout(this.resizeTimer);
-      this.resizeTimer = setTimeout(() => (this.box.active ? (this.pendingResize = true) : this.scene.restart()), 250);
+      this.resizeTimer = setTimeout(() => (this.paused ? (this.pendingResize = true) : this.scene.restart()), 250);
     };
     this.scale.on('resize', onResize);
     this.events.once('shutdown', () => {
@@ -135,6 +139,8 @@ export class MapScene extends Phaser.Scene {
           setDistance: (d: number) => this.w3.setDistance(d),
           ui: () => ({ enter: this.enterBtn.visible ? this.enterLabel.text : '', target: this.enterTarget }),
           enter: () => this.enterVenue(),
+          event: (id: string) => { const ev = EVENTS.find((x) => x.id === id); if (ev) this.showEvent(ev); return !!ev; },
+          eventOpen: () => this.evObjs.length > 0,
         },
       });
     }
@@ -157,6 +163,54 @@ export class MapScene extends Phaser.Scene {
       }
     }
     this.w3.addBystanders(spots);
+  }
+
+  /** A random street event: a panel with the story and one button per reply; time and movement stand still meanwhile. */
+  private showEvent(ev: EventDef): void {
+    this.stick.active = false; this.stick.dx = 0; this.stick.dy = 0;
+    this.stickBase.setVisible(false); this.stickKnob.setVisible(false);
+    const W = this.scale.width, H = this.scale.height;
+    const pw = Math.min(W - 24, 460), x = W / 2;
+    const portrait = ev.who && this.textures.exists(`portrait-${ev.who}`) ? `portrait-${ev.who}` : null;
+    const txt = (y: number, s: string, size: number, color: string, ox = 0, bold = false): Phaser.GameObjects.Text => this.track(this.add.text(x + ox, y, s, { fontFamily: FONT, fontSize: `${size}px`, fontStyle: bold ? 'bold' : 'normal', color, wordWrap: { width: pw - 36 - Math.abs(ox) * 2 } }).setOrigin(0.5, 0).setDepth(212));
+    const rows = ev.options.length;
+    const ph = 170 + rows * 54;
+    const top = Math.max(70, H / 2 - ph / 2 - 20);
+    this.track(this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.45).setDepth(209).setInteractive());
+    this.track(this.add.rectangle(x, top + ph / 2, pw, ph, 0x151c2b, 0.98).setStrokeStyle(2, 0xffd23a).setDepth(210));
+    if (portrait) this.track(this.add.image(x - pw / 2 + 52, top + 54, portrait).setDisplaySize(66, 66).setDepth(212));
+    const shift = portrait ? 40 : 0;
+    txt(top + 14, ev.title, 19, '#ffd23a', shift, true);
+    const body = txt(top + 46, ev.text, 15, '#e8ecf8', shift);
+    let y = top + Math.max(100, 46 + body.height + 18);
+    ev.options.forEach((o, i) => {
+      const poor = !!o.needsMoney && this.state.money < o.needsMoney;
+      const b = this.track(this.add.rectangle(x, y + 22, pw - 28, 46, poor ? 0x3a3f4d : 0x2b3a55).setStrokeStyle(1, 0xffffff, poor ? 0.2 : 0.6).setDepth(211));
+      this.track(this.add.text(x, y + 22, `${i + 1}. ${o.label}${poor ? '  (не хватает денег)' : ''}`, { fontFamily: FONT, fontSize: '15px', color: poor ? '#8a90a0' : '#ffffff', align: 'center', wordWrap: { width: pw - 44 } }).setOrigin(0.5).setDepth(212));
+      if (!poor) {
+        const pick = (): void => this.resolveEventChoice(ev, i);
+        b.setInteractive({ useHandCursor: true }).on('pointerdown', pick);
+        this.evChoose[i] = pick;
+      }
+      y += 54;
+    });
+    sfx.quest();
+  }
+
+  private track<T extends Phaser.GameObjects.GameObject>(o: T): T { this.evObjs.push(o); return o; }
+
+  private closeEvent(): void {
+    this.evObjs.forEach((o) => o.destroy());
+    this.evObjs = [];
+    this.evChoose = [];
+    persist();
+  }
+
+  private resolveEventChoice(ev: EventDef, i: number): void {
+    const lines = resolveEvent(this.state, ev, i);
+    this.closeEvent();
+    sfx.click();
+    this.showToast(lines);
   }
 
   /** People gather on the square after 17:00, and on weekend afternoons. */
@@ -284,17 +338,18 @@ export class MapScene extends Phaser.Scene {
     const kb = this.input.keyboard!;
     this.keys = kb.createCursorKeys();
     this.wasd = kb.addKeys('W,A,S,D') as Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
+    kb.on('keydown', (e: KeyboardEvent) => { const n = Number(e.key); if (n >= 1 && n <= 3) this.evChoose[n - 1]?.(); });
     kb.on('keydown-E', () => {
-      if (this.box.active) return;
+      if (this.paused) return;
       if (this.talkTarget) this.startTalk();
       else if (this.enterTarget) this.enterVenue();
     });
     this.input.on('wheel', (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
-      if (!this.box.active) this.zoom(dy > 0 ? 1.14 : 0.88);
+      if (!this.paused) this.zoom(dy > 0 ? 1.14 : 0.88);
     });
     this.input.addPointer(1);
     this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
-      if (this.box.active || over.length > 0 || this.stick.active) return;
+      if (this.paused || over.length > 0 || this.stick.active) return;
       this.stick = { active: true, ox: p.x, oy: p.y, dx: 0, dy: 0, id: p.id };
       this.stickBase.setPosition(p.x, p.y).setVisible(true);
       this.stickKnob.setPosition(p.x, p.y).setVisible(true);
@@ -328,14 +383,14 @@ export class MapScene extends Phaser.Scene {
   }
 
   private startTalk(): void {
-    if (!this.talkTarget || this.box.active) return;
+    if (!this.talkTarget || this.paused) return;
     this.stick.active = false; this.stick.dx = 0; this.stick.dy = 0;
     this.stickBase.setVisible(false); this.stickKnob.setVisible(false);
     this.box.open(this.talkTarget);
   }
 
   private enterVenue(): void {
-    if (!this.enterTarget || this.box.active) return;
+    if (!this.enterTarget || this.paused) return;
     if (this.enterTarget === HANGOUT) { this.hangOut(); return; }
     this.registry.set('mapPos', { x: this.px, y: this.py });
     this.scene.start(hasInterior(this.enterTarget) ? 'interior' : 'venue', { venueId: this.enterTarget });
@@ -392,7 +447,11 @@ export class MapScene extends Phaser.Scene {
   override update(_t: number, dtMs: number): void {
     const dt = Math.min(dtMs, 100) / 1000;
 
-    if (!this.box.active) {
+    if (!this.paused && !this.state.ended && eventDue(this.state)) {
+      const ev = rollEvent(this.state);
+      if (ev) this.showEvent(ev);
+    }
+    if (!this.paused) {
       // clock: one real second is four game minutes (paused while talking)
       this.clockAcc += dt * GAME_MINUTES_PER_SECOND;
       while (this.clockAcc >= 1 && !this.state.ended) {
@@ -409,10 +468,10 @@ export class MapScene extends Phaser.Scene {
     this.w3.setNight(this.nightAlpha());
     const busy = this.squareBusy();
     this.w3.setBystandersLevel(busy ? 2 : 1);
-    this.hint.setText(this.box.active ? '' : this.objective());
+    this.hint.setText(this.paused ? '' : this.objective());
 
     let vx = 0, vy = 0;
-    if (!this.box.active) {
+    if (!this.paused) {
       vx = this.stick.dx; vy = this.stick.dy;
       if (this.keys.left.isDown || this.wasd.A.isDown) vx -= 1;
       if (this.keys.right.isDown || this.wasd.D.isDown) vx += 1;
@@ -455,13 +514,13 @@ export class MapScene extends Phaser.Scene {
     const fom = this.landmark('fountain');
     const onSquare = Phaser.Math.Distance.Between(this.px, this.py, sqm.pos[0] * S, sqm.pos[1] * S) < SQUARE_RADIUS || Phaser.Math.Distance.Between(this.px, this.py, fom.pos[0] * S, fom.pos[1] * S) < 18 * S;
     // the square's music is only audible while the player is on it, and after the sound has been unlocked by a first tap
-    music(busy && onSquare && !this.box.active ? 'square' : '');
+    music(busy && onSquare && !this.paused ? 'square' : '');
     const hang = busy && onSquare && !venue;
     if (hang) this.enterTarget = HANGOUT;
 
     const showKeys = !this.sys.game.device.input.touch;
-    this.talkBtn.setVisible(!!near && !this.box.active);
-    this.enterBtn.setVisible((!!venue || hang) && !this.box.active);
+    this.talkBtn.setVisible(!!near && !this.paused);
+    this.enterBtn.setVisible((!!venue || hang) && !this.paused);
     if (near) this.talkLabel.setText(`Поговорить: ${near.name}${showKeys ? '   [E]' : ''}`);
     if (venue) this.enterLabel.setText(`Зайти: ${venue.name}${near ? '' : showKeys ? '   [E]' : ''}`);
     else if (hang) this.enterLabel.setText(`Потусоваться на площади${near ? '' : showKeys ? '   [E]' : ''}`);
