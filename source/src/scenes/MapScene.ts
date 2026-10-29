@@ -8,7 +8,7 @@ import { createHud } from '../game/hud';
 import { DialogueBox } from '../game/dialogueBox';
 import { S, type Landmark, type MapData } from '../game/mapData';
 import { getState, persist } from '../game/store';
-import { World3D } from '../game/world3d';
+import { fovFor, World3D } from '../game/world3d';
 
 // Game logic works in "map pixels" (3 px = 1 m) as before; the 3D world is told positions in metres (px / S).
 const SPEED = 92; // px/s = about 30 m/s: crossing the old town takes ~20 s
@@ -16,7 +16,6 @@ const TALK_RANGE = 52;
 const ENTER_RANGE = 74;
 const GAME_MINUTES_PER_SECOND = 4;
 
-type Dir = 'down' | 'up' | 'left' | 'right';
 interface Npc { id: string; name: string; x: number; y: number; visible: boolean; index: number }
 
 let world: World3D | null = null;
@@ -28,7 +27,6 @@ export class MapScene extends Phaser.Scene {
   private w3!: World3D;
   private px = 0;
   private py = 0;
-  private facing: Dir = 'down';
   private npcs: Npc[] = [];
   private hud!: { update: () => void };
   private box!: DialogueBox;
@@ -85,7 +83,7 @@ export class MapScene extends Phaser.Scene {
 
     // camera height: shows about 110 m across the screen by default, much more when zoomed out
     const aspect = W / H;
-    const tanH = Math.tan(((aspect < 1 ? 58 : 45) * Math.PI) / 360) * aspect;
+    const tanH = Math.tan((fovFor(aspect) * Math.PI) / 360) * aspect;
     this.w3.setDistance((this.registry.get('dist') as number | undefined) ?? 150 / (2 * tanH));
     this.w3.teleportCamera(this.px / S, this.py / S);
     this.w3.addFigure('stas', null);
@@ -344,8 +342,8 @@ export class MapScene extends Phaser.Scene {
       if (!this.blockedBody(this.px, ny)) this.py = ny;
     }
     const moving = Math.abs(vx) > 0.05 || Math.abs(vy) > 0.05;
-    if (moving) this.facing = Math.abs(vx) > Math.abs(vy) ? (vx < 0 ? 'left' : 'right') : vy < 0 ? 'up' : 'down';
-    this.w3.setFigure('stas', this.px / S, this.py / S, true, moving, this.facing);
+    // the body turns to where he runs (0 = facing the camera)
+    this.w3.setFigure('stas', this.px / S, this.py / S, true, moving, moving ? Math.atan2(vx, vy) : undefined);
     this.w3.setTarget(this.px / S, this.py / S);
     this.w3.update(dt);
 

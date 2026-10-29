@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { FONT } from '../config';
 import type { MapData } from './mapData';
-import { figureCanvas, FH, FW, LOOKS, type Look } from './sprites';
+import { buildRig, DESIGN_H, FACE_Y, pose, type Rig } from './figure3d';
+import { LOOKS, type Look } from './sprites';
 
 // Low-poly 3D town: OSM footprints extruded into houses, flat road ribbons, instanced trees and windows, billboard figures.
 // Units are metres: x = east, z = south (map pixels / 3). Phaser keeps drawing the interface on a transparent canvas on top.
@@ -11,11 +12,10 @@ const ROOF = [0x8a8f9c, 0xb5483f, 0xcdb88a, 0x6f8aa8, 0x9a9da4];
 const ROOF_BLOCK = [0x8a8f9c, 0x9a7f6a, 0x7f93a8, 0xa07a6a, 0x6f8a86];
 const ROOF_HOUSE = [0xb5483f, 0x8a5a3a, 0x3f6f4a, 0x4a6fa5, 0x9a4a4a];
 const WALL = [0xd9d0bf, 0xe6dccb, 0xe8d9b0, 0xcfd8e2, 0xcfcfcf];
-const FIG_ASPECT = FW / FH;
-const FOV = 45;
+const FOV = 32; // narrow lens: less perspective distortion at the edges of the screen
+export const fovFor = (aspect: number): number => (aspect < 1 ? 48 : FOV);
 
-type Dir = 'down' | 'up' | 'left' | 'right';
-interface Fig { sprite: THREE.Sprite; shadow: THREE.Mesh; tag: THREE.Sprite | null; tex: Record<string, THREE.Texture[]> | null; moving: boolean; dir: Dir; t: number }
+interface Fig { rig: Rig | null; shadow: THREE.Mesh; tag: THREE.Sprite | null; visible: boolean; moving: boolean; x: number; z: number; yaw: number; targetYaw: number; t: number }
 interface Tag { sprite: THREE.Sprite; px: number; kind: 'landmark' | 'shop' | 'name' }
 
 function hash(n: number): number {
@@ -40,7 +40,7 @@ export class World3D {
   private windows: THREE.InstancedMesh | null = null;
   private winLit: Uint8Array = new Uint8Array(0);
   private winMode = -1;
-  private figTextures = new Map<string, Record<string, THREE.Texture[]>>();
+  private heads = new Map<string, HTMLImageElement | null>();
   private ready: Promise<void>;
   private flatMats: { m: THREE.MeshBasicMaterial; base: THREE.Color }[] = [];
 
@@ -375,59 +375,50 @@ export class World3D {
         img.onerror = () => res(null);
         img.src = `portraits/${look.id}.svg`;
       });
-      const tex: Record<string, THREE.Texture[]> = {};
-      for (const dir of ['down', 'up', 'left'] as const) {
-        tex[dir] = [0, 1, 2].map((f) => {
-          const t = new THREE.CanvasTexture(figureCanvas(look, head, dir, f, 2));
-          t.colorSpace = THREE.SRGBColorSpace;
-          return t;
-        });
-      }
-      this.figTextures.set(look.id, tex);
-      const fig = this.figures.get(look.id);
-      if (fig) { fig.tex = tex; this.applyFrame(fig, 0); }
+      this.heads.set(look.id, head);
+      const f = this.figures.get(look.id);
+      if (f) this.ensureRig(f, look.id);
     }));
   }
 
-  private applyFrame(f: Fig, frame: number): void {
-    if (!f.tex) return;
-    const dir = f.dir === 'right' ? 'left' : f.dir;
-    const t = (f.tex[dir] as THREE.Texture[])[frame] as THREE.Texture;
-    const mat = f.sprite.material as THREE.SpriteMaterial;
-    if (mat.map !== t) { mat.map = t; mat.needsUpdate = true; }
-    f.sprite.userData.flip = f.dir === 'right' ? -1 : 1;
+  /** Builds the 3D body once the portrait for its head has loaded. */
+  private ensureRig(f: Fig, id: string): void {
+    if (f.rig || !this.heads.has(id)) return;
+    const look = LOOKS.find((l) => l.id === id);
+    if (!look) return;
+    const rig = buildRig(look, this.heads.get(id) ?? null);
+    rig.root.traverse((o) => { o.renderOrder = 30; });
+    rig.face.renderOrder = 31;
+    rig.root.visible = f.visible;
+    rig.face.visible = f.visible;
+    this.scene.add(rig.root, rig.face);
+    f.rig = rig;
   }
 
-  /** Creates (once) a standing figure; returns the id for the setters below. */
+  /** Creates (once) a standing person; positions and walking are set with setFigure(). */
   addFigure(id: string, name: string | null): void {
     if (this.figures.has(id)) return;
-    const mat = new THREE.SpriteMaterial({ transparent: true, alphaTest: 0.05, depthWrite: true });
-    const sprite = new THREE.Sprite(mat);
-    sprite.center.set(0.5, 0.04);
-    sprite.renderOrder = 30;
-    sprite.visible = false;
-    const shadow = new THREE.Mesh(new THREE.CircleGeometry(1.5, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false }));
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(1.7, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false }));
     shadow.rotation.x = -Math.PI / 2;
     shadow.renderOrder = 16;
     shadow.visible = false;
     const tag = name ? this.addTag(name, '#ffffff', 0, 0, 0, true, 'name') : null;
     if (tag) { tag.visible = false; (tag.material as THREE.SpriteMaterial).depthTest = false; tag.renderOrder = 50; }
-    const fig: Fig = { sprite, shadow, tag, tex: this.figTextures.get(id) ?? null, moving: false, dir: 'down', t: 0 };
+    const fig: Fig = { rig: null, shadow, tag, visible: false, moving: false, x: 0, z: 0, yaw: 0, targetYaw: 0, t: 0 };
     this.figures.set(id, fig);
-    this.scene.add(sprite, shadow);
-    this.applyFrame(fig, 0);
+    this.scene.add(shadow);
+    this.ensureRig(fig, id);
   }
 
-  setFigure(id: string, x: number, z: number, visible: boolean, moving = false, dir: Dir = 'down'): void {
+  /** yaw: direction the person faces in radians (0 = towards the camera/south); omit to keep the current one. */
+  setFigure(id: string, x: number, z: number, visible: boolean, moving = false, yaw?: number): void {
     const f = this.figures.get(id);
     if (!f) return;
-    f.sprite.position.set(x, 0, z);
+    f.x = x; f.z = z; f.visible = visible; f.moving = moving;
+    if (yaw !== undefined) f.targetYaw = yaw;
     f.shadow.position.set(x, 0.2, z);
-    f.sprite.visible = visible && !!f.tex;
     f.shadow.visible = visible;
-    if (f.tag) f.tag.visible = visible;
-    f.moving = moving;
-    if (f.dir !== dir) { f.dir = dir; this.applyFrame(f, 0); }
+    if (f.rig) { f.rig.root.visible = visible; f.rig.face.visible = visible; }
   }
 
   // --- camera, light, frame ----------------------------------------------------------------------
@@ -454,7 +445,7 @@ export class World3D {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    this.camera.fov = w / h < 1 ? 58 : FOV; // portrait phones need a wider lens to see enough of the street
+    this.camera.fov = fovFor(w / h);
     this.camera.updateProjectionMatrix();
   }
 
@@ -469,18 +460,32 @@ export class World3D {
     (this.scene.fog as THREE.Fog).near = d * 2.2;
     (this.scene.fog as THREE.Fog).far = d * 9;
 
-    // figures keep a readable size however high the camera is
-    const figH = Math.max(5.2, d * 0.07);
+    // people keep a readable size however high the camera is
+    const figH = Math.max(7.2, d * 0.085);
+    const s = figH / DESIGN_H;
     const k = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const hpx = this.canvas.clientHeight || window.innerHeight;
+    const toCam = new THREE.Vector3();
     for (const f of this.figures.values()) {
-      const flip = (f.sprite.userData.flip as number | undefined) ?? 1;
-      f.sprite.scale.set(figH * FIG_ASPECT * flip, figH, 1);
-      f.shadow.scale.setScalar(figH / 5.2);
-      if (f.moving) { f.t += dt * 8; this.applyFrame(f, [1, 0, 2, 0][Math.floor(f.t) % 4] as number); } else if (f.t !== 0) { f.t = 0; this.applyFrame(f, 0); }
+      f.shadow.scale.setScalar(figH / 5.4);
+      const rig = f.rig;
+      if (rig) {
+        let diff = f.targetYaw - f.yaw;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        f.yaw += diff * (1 - Math.exp(-dt * 12));
+        f.t += dt * (f.moving ? 9 : 2);
+        rig.root.position.set(f.x, 0, f.z);
+        rig.root.rotation.y = f.yaw;
+        rig.root.scale.setScalar(s);
+        pose(rig, f.moving, f.t);
+        const head = new THREE.Vector3(f.x, (FACE_Y + rig.bob.position.y) * s, f.z);
+        toCam.copy(this.camera.position).sub(head).normalize();
+        rig.face.position.copy(head).addScaledVector(toCam, 0.8 * s);
+        rig.face.scale.setScalar(2.6 * s);
+      }
       if (f.tag) {
-        f.tag.visible = f.sprite.visible && d <= 700;
-        f.tag.position.set(f.sprite.position.x, figH + 0.8, f.sprite.position.z);
+        f.tag.visible = f.visible && d <= 700;
+        f.tag.position.set(f.x, figH + 1.2 * s, f.z);
         const ts = f.tag.userData as { aspect: number };
         const sy = (24 / hpx) * k;
         f.tag.scale.set(sy * ts.aspect, sy, 1);

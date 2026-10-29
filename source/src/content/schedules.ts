@@ -44,10 +44,11 @@ const SCHEDULES: Record<string, Slot[]> = {
     { when: 'weekday', from: 10, to: 19, at: 'pyaterochka' },
     { when: 'all', from: 19, to: 22, at: 'square' },
   ],
+  // Karina is on maternity leave: she is out almost all day, every day (draft, the author can reshuffle)
   karina: [
-    { when: 'weekday', from: 10, to: 15, at: 'square' },
-    { when: 'weekday', from: 16, to: 19, at: 'pyaterochka' },
-    { when: 'weekend', from: 11, to: 19, at: 'square' },
+    { when: 'all', from: 9, to: 13, at: 'square' },
+    { when: 'all', from: 13, to: 16, at: 'stadium' },
+    { when: 'all', from: 16, to: 21, at: 'pyaterochka' },
   ],
 };
 
