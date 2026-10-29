@@ -201,3 +201,14 @@ export function ensureSprites(scene: Phaser.Scene): void {
     }
   }
 }
+
+/** One figure frame on its own canvas (used by the 3D world); `scale` 2 keeps the billboard sharp when it is close to the camera. */
+export function figureCanvas(look: Look, head: CanvasImageSource | null, dir: Dir, frame: number, scale = 2): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  cv.width = FW * scale;
+  cv.height = FH * scale;
+  const ctx = cv.getContext('2d') as CanvasRenderingContext2D;
+  ctx.scale(scale, scale);
+  drawFigure(ctx, look, head, dir, frame);
+  return cv;
+}

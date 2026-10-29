@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "inkjs": "^2.3.0",
-    "phaser": "^3.90.0"
+    "phaser": "^3.90.0",
+    "three": "^0.170.0"
   },
   "devDependencies": {
+    "@types/three": "^0.170.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
     "vitest": "^3.0.0"

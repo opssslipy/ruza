@@ -18,7 +18,7 @@ function startGame(): void {
   new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
-    backgroundColor: '#14110f',
+    transparent: true,
     scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
     scene: [MapScene, MenuScene, VenueScene, CallScene, EndScene],
   });
