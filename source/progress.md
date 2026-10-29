@@ -64,3 +64,8 @@ NEXT: life on the map (cars and passers-by on streets, street events/quests), so
 ## 2026-10-29 update 7: street life
 Done: 22 cars drive along real streets near the centre (two lanes, back and forth, they grow with camera height), 14 passers-by with random costumes and generic faces walk along footpaths. Hidden inside buildings and on the title screen (cars stay on the title). Source: src/game/streetLife.ts.
 NEXT (not done): street events and small quests on the map, sound, performance check on a real phone.
+
+## 2026-10-29 update 8: quests, mini-games, sound, real-size people
+Done: (1) people and cars keep real size when the camera zooms (they no longer grow when zooming out). (2) Quests (src/game/quests.ts, 6 draft errands from the friends: Diana's parcel, Lev's interview, Bara's eyes and ears, Belka's shawarma, Karina's beer, Timur's car): a friend offers one after a conversation where Stas helped, the target glows on the map with a yellow beam and plate, the top line shows the current step and hours left, visiting a venue / using a venue action / talking to a person completes steps, reward on completion, penalty on timeout, max 3 at a time. (3) Rhythm mini-games for the gym (5 reps) and the dance floors of Ruzvelt/Mixbar (4-6 beats) adding a bonus to the plain action. (4) Sound without files (Web Audio): UI/mini-game blips, coin, hookah puff, quest jingle, lounge music in The Dym, beat in the clubs, mute button.
+Tests 38/38; headless Edge: quest offered -> visit -> step 2, gym and club mini-games, play-through, no console errors. Not verified: how sound feels on a real device, phone speed.
+OPEN: quest texts and rewards are drafts; more quests and street events; other venues have no mini-game yet.

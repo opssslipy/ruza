@@ -11,6 +11,9 @@ import { getState, persist } from '../game/store';
 import { fovFor, type World3D } from '../game/world3d';
 import { getWorld } from '../game/worldHolder';
 import { hasInterior } from './InteriorScene';
+import { sfx, stopMusic } from '../game/audio';
+import { muteButton } from '../game/muteButton';
+import { currentTargets, offerQuest, onTalk, tickQuests } from '../game/quests';
 
 // Game logic works in "map pixels" (3 px = 1 m) as before; the 3D world is told positions in metres (px / S).
 const SPEED = 92; // px/s = about 30 m/s: crossing the old town takes ~20 s
@@ -42,6 +45,8 @@ export class MapScene extends Phaser.Scene {
   private talkTarget: string | null = null;
   private enterTarget: string | null = null;
   private place!: Phaser.GameObjects.Text;
+  private quest!: Phaser.GameObjects.Text;
+  private questSig = '';
   private hint!: Phaser.GameObjects.Text;
   private toast!: Phaser.GameObjects.Text;
   private clockAcc = 0;
@@ -95,6 +100,8 @@ export class MapScene extends Phaser.Scene {
     this.buildUi(W, H);
     this.setupInput();
     this.placeFriends();
+    stopMusic();
+    muteButton(this, W - 26, 80);
 
     const onResize = (): void => {
       if (this.resizeTimer) clearTimeout(this.resizeTimer);
@@ -191,6 +198,7 @@ export class MapScene extends Phaser.Scene {
   private buildUi(W: number, H: number): void {
     this.hud = createHud(this, this.state, { width: W });
     this.place = this.add.text(W / 2, 70, '', { fontFamily: FONT, fontSize: '16px', fontStyle: 'bold', color: '#ffffff', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(100);
+    this.quest = this.add.text(W / 2, 92, '', { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: '#ffd23a', stroke: '#000', strokeThickness: 4, align: 'center', wordWrap: { width: W - 90 } }).setOrigin(0.5, 0).setDepth(100);
     this.hint = this.add.text(W / 2, H - 38, '', { fontFamily: FONT, fontSize: '13px', color: '#ffe08a', stroke: '#000', strokeThickness: 3, align: 'center', wordWrap: { width: W - 20 } }).setOrigin(0.5).setDepth(100);
     this.add.text(8, H - 14, '© OpenStreetMap contributors', { fontFamily: FONT, fontSize: '10px', color: '#ffffff', stroke: '#000', strokeThickness: 3 }).setOrigin(0, 1).setDepth(100);
     this.toast = this.add.text(W / 2, 120, '', { fontFamily: FONT, fontSize: '15px', color: '#fff', backgroundColor: '#000000cc', padding: { x: 10, y: 6 }, align: 'center', wordWrap: { width: Math.min(W - 40, 520) } }).setOrigin(0.5, 0).setDepth(120).setVisible(false);
@@ -218,7 +226,8 @@ export class MapScene extends Phaser.Scene {
 
     this.box = new DialogueBox({
       scene: this, width: W, height: H, add: (o) => o,
-      onClose: () => {
+      onClose: (id, helped) => {
+        this.afterTalk(id, helped);
         this.hud.update();
         if (this.pendingResize) { this.pendingResize = false; this.scene.restart(); }
       },
@@ -285,6 +294,29 @@ export class MapScene extends Phaser.Scene {
     this.scene.start(hasInterior(this.enterTarget) ? 'interior' : 'venue', { venueId: this.enterTarget });
   }
 
+  /** After a conversation: finish quest steps that wait for it, and let a friend hand out a new errand. */
+  private afterTalk(id: string, helped: boolean): void {
+    const msgs = onTalk(this.state, id);
+    const q = helped ? offerQuest(this.state, id) : null;
+    if (q) { msgs.push(`Новое задание: «${q.title}»`, q.intro); sfx.quest(); }
+    this.showToast(msgs);
+    persist();
+  }
+
+  /** The current step of the first quest in the top line, and a glowing beam over every target place. */
+  private refreshQuests(): void {
+    const t = currentTargets(this.state);
+    const first = t[0];
+    const who = first?.npc ? CHARACTERS.find((c) => c.id === first.npc)?.name : '';
+    this.quest.setText(first ? `▶ ${first.text}${first.place || !first.npc ? '' : ` (найди: ${who})`}  ·  осталось ${first.hoursLeft} ч` : '');
+    const pts = t.flatMap((x) => {
+      const l = x.place ? this.map.landmarks.find((m) => m.id === x.place) : undefined;
+      return l ? [{ x: l.pos[0], z: l.pos[1], label: x.text }] : [];
+    });
+    const sig = pts.map((p) => `${p.x},${p.z},${p.label}`).join('|');
+    if (sig !== this.questSig) { this.questSig = sig; this.w3.setQuestMarkers(pts); }
+  }
+
   private showToast(msgs: string[]): void {
     if (!msgs.length) return;
     this.toast.setText(msgs.join('\n')).setVisible(true);
@@ -318,13 +350,14 @@ export class MapScene extends Phaser.Scene {
       this.clockAcc += dt * GAME_MINUTES_PER_SECOND;
       while (this.clockAcc >= 1 && !this.state.ended) {
         this.clockAcc -= 1;
-        this.showToast(advance(this.state, 1));
+        this.showToast([...advance(this.state, 1), ...tickQuests(this.state)]);
       }
       if (this.state.ended) { persist(); this.scene.start('end'); return; }
       this.saveAcc += dt;
       if (this.saveAcc > 5) { this.saveAcc = 0; persist(); }
     }
     this.hud.update();
+    this.refreshQuests();
     this.placeFriends();
     this.w3.setNight(this.nightAlpha());
     this.hint.setText(this.box.active ? '' : this.objective());

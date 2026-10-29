@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { FONT } from '../config';
 import { S, type MapData } from '../game/mapData';
 import { restart } from '../game/store';
+import { unlock } from '../game/audio';
+import { muteButton } from '../game/muteButton';
 import { fovFor } from '../game/world3d';
 import { getWorld } from '../game/worldHolder';
 
@@ -124,6 +126,7 @@ export class TitleScene extends Phaser.Scene {
     }
     this.add.text(W / 2, H - 12, '© OpenStreetMap contributors  ·  игра для своих', { fontFamily: FONT, fontSize: '11px', color: '#cccccc', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 1).setDepth(7);
 
+    muteButton(this, W - 26, 26);
     this.input.keyboard?.on('keydown-ENTER', () => this.play(false));
     this.input.keyboard?.on('keydown-SPACE', () => this.play(false));
 

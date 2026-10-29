@@ -17,7 +17,7 @@ const FOV = 32; // narrow lens: less perspective distortion at the edges of the 
 export const fovFor = (aspect: number): number => (aspect < 1 ? 48 : FOV);
 
 interface Fig { sitting: boolean; rig: Rig | null; shadow: THREE.Mesh; tag: THREE.Sprite | null; visible: boolean; moving: boolean; x: number; z: number; yaw: number; targetYaw: number; t: number }
-interface Tag { sprite: THREE.Sprite; px: number; kind: 'landmark' | 'shop' | 'name' }
+interface Tag { sprite: THREE.Sprite; px: number; kind: 'landmark' | 'shop' | 'name' | 'quest' }
 
 function hash(n: number): number {
   let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
@@ -489,7 +489,7 @@ export class World3D {
   }
 
   private updateStreetLife(dt: number): void {
-    const carK = Math.max(1, (this.inInterior ? 0 : this.dist) / 70); // cars grow with the camera height like people do
+    const carK = 1;
     for (const c of this.traffic) {
       advanceWalker(c.w, dt);
       const p = sampleAt(c.w, c.w.s), f = c.w.dir;
@@ -502,6 +502,26 @@ export class World3D {
       advanceWalker(c.w, dt);
       const p = sampleAt(c.w, c.w.s), f = c.w.dir;
       this.setFigure(c.id, p.x, p.z, show, true, Math.atan2(p.dx * f, p.dz * f));
+    }
+  }
+
+  // --- quest markers: a glowing beam and a plate over every target ---------------------------------
+  private questObjs: { beam: THREE.Mesh; tag: THREE.Sprite }[] = [];
+
+  setQuestMarkers(list: { x: number; z: number; label: string }[]): void {
+    for (const q of this.questObjs) {
+      this.city.remove(q.beam, q.tag);
+      const i = this.tags.findIndex((t) => t.sprite === q.tag);
+      if (i >= 0) this.tags.splice(i, 1);
+    }
+    this.questObjs = [];
+    for (const m of list) {
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 80, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }));
+      beam.position.set(m.x, 40, m.z);
+      beam.renderOrder = 45;
+      this.city.add(beam);
+      const tag = this.addTag('Задание: ' + m.label, '#ffd23a', m.x, 34, m.z, true, 'quest');
+      this.questObjs.push({ beam, tag });
     }
   }
 
@@ -632,7 +652,7 @@ export class World3D {
     if (this.scene.fog) { (this.scene.fog as THREE.Fog).near = d * 2.2; (this.scene.fog as THREE.Fog).far = d * 9; }
 
     // people keep a readable size however high the camera is
-    const figH = this.inInterior ? 6.6 : this.titleMode ? 8.6 : Math.max(7.2, d * 0.085);
+    const figH = this.inInterior ? 6.6 : this.titleMode ? 8.6 : 7.2; // real size: they do not grow when the camera zooms out
     const s = figH / DESIGN_H;
     const k = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const hpx = this.canvas.clientHeight || window.innerHeight;

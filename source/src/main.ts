@@ -7,7 +7,10 @@ import { InteriorScene } from './scenes/InteriorScene';
 import { CallScene } from './scenes/CallScene';
 import { EndScene } from './scenes/EndScene';
 
+import { unlock } from './game/audio';
+
 function startGame(): void {
+  for (const ev of ['pointerdown', 'keydown'] as const) window.addEventListener(ev, () => unlock(), { once: false, passive: true });
   new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',

@@ -17,6 +17,7 @@ export interface GameState {
   workedToday: number;
   passOuts: number;
   ended: EndingId | null;
+  quests?: { active: { id: string; step: number; until: number }[]; done: string[]; failed: string[] };
 }
 
 export interface Effect {
@@ -40,7 +41,7 @@ export function newGame(): GameState {
   return {
     day: 0, minutes: 8 * 60 + 30,
     satiety: 40, energy: 70, mood: 60, health: 90, wanted: 0, money: START_MONEY,
-    talked: [], talkedDay: {}, workedToday: 0, passOuts: 0, ended: null,
+    talked: [], talkedDay: {}, workedToday: 0, passOuts: 0, ended: null, quests: { active: [], done: [], failed: [] },
   };
 }
 

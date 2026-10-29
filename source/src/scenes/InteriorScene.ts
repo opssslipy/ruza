@@ -7,7 +7,12 @@ import { HookahGame } from '../game/hookahGame';
 import { createHud } from '../game/hud';
 import { buildDym, type Box, type Room, type Seat, type Spot } from '../game/interiors';
 import { buildClub, buildCinema, buildGarage, buildGym, buildHome, buildHospital, buildOffice, buildShop } from '../game/interiors2';
-import { venueById } from '../content/venues';
+import { venueById, type VenueAction } from '../content/venues';
+import { music, sfx, stopMusic } from '../game/audio';
+import { muteButton } from '../game/muteButton';
+import { TimingGame, type TimingConfig } from '../game/timingGame';
+import type { Effect } from '../game/state';
+import { currentTargets, offerQuest, onAction, onTalk, onVisit, tickQuests } from '../game/quests';
 import type { MapData } from '../game/mapData';
 import { advance, applyEffect, describeEffect, sleepAtHome, type GameState } from '../game/state';
 import { getState, persist } from '../game/store';
@@ -31,6 +36,19 @@ const BUILDERS: Record<string, () => Room> = {
 };
 export const hasInterior = (id: string): boolean => id in BUILDERS;
 
+// Mini-games that decorate the plain venue action: the score adds a bonus (or a penalty) to the action's own effect.
+interface GameDef { cfg: TimingConfig; bonus: (good: number, rounds: number) => Effect }
+const GAMES: Record<string, GameDef> = {
+  gym: { cfg: { title: 'Подход со штангой', intro: 'Жми, когда метка в зелёной зоне: чистое повторение', verb: 'ЖАТЬ', rounds: 5, goodText: 'Чисто!', badText: 'Не вышло, штанга тяжёлая' }, bonus: (g, n) => ({ mood: g * 2, health: g, energy: -(n - g) * 2 }) },
+  ruzvelt: { cfg: { title: 'Танцпол', intro: 'Лови ритм: жми в зелёной зоне, пока играет музыка', verb: 'ТАНЦЕВАТЬ', rounds: 6, goodText: 'В такт!', badText: 'Мимо ритма' }, bonus: (g, n) => ({ mood: g * 4 - (n - g) }) },
+  mixbar: { cfg: { title: 'Танцпол', intro: 'Лови ритм: жми в зелёной зоне', verb: 'ТАНЦЕВАТЬ', rounds: 4, goodText: 'В такт!', badText: 'Мимо ритма' }, bonus: (g, n) => ({ mood: g * 4 - (n - g) }) },
+};
+const MUSIC: Record<string, string> = { dym: 'lounge', ruzvelt: 'club', mixbar: 'club' };
+const sumEffects = (a: Effect, b: Effect): Effect => ({
+  money: (a.money ?? 0) + (b.money ?? 0), satiety: (a.satiety ?? 0) + (b.satiety ?? 0), energy: (a.energy ?? 0) + (b.energy ?? 0), mood: (a.mood ?? 0) + (b.mood ?? 0),
+  health: (a.health ?? 0) + (b.health ?? 0), wanted: (a.wanted ?? 0) + (b.wanted ?? 0), minutes: (a.minutes ?? 0) + (b.minutes ?? 0),
+});
+
 const SPEED = 15; // metres per second
 const BODY = 1.6;
 const TALK_RANGE = 9;
@@ -50,6 +68,8 @@ export class InteriorScene extends Phaser.Scene {
   private hud!: { update: () => void };
   private box!: DialogueBox;
   private hookah!: HookahGame;
+  private timing!: TimingGame;
+  private pending: { a: VenueAction; idx: number; g: GameDef } | null = null;
   private keys!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
   private stick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, id: -1 };
@@ -60,6 +80,7 @@ export class InteriorScene extends Phaser.Scene {
   private useBtn!: Phaser.GameObjects.Container;
   private useLabel!: Phaser.GameObjects.Text;
   private place!: Phaser.GameObjects.Text;
+  private quest!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
   private toast!: Phaser.GameObjects.Text;
   private talkTarget: string | null = null;
@@ -119,10 +140,13 @@ export class InteriorScene extends Phaser.Scene {
 
     this.buildUi(this.scale.width, this.scale.height);
     this.setupInput();
+    this.showToast(onVisit(this.state, this.venueId));
+    muteButton(this, this.scale.width - 26, 80);
+    music(MUSIC[this.venueId] ?? '');
 
     const onResize = (): void => {
       if (this.resizeTimer) clearTimeout(this.resizeTimer);
-      this.resizeTimer = setTimeout(() => (this.box.active || this.hookah.active ? undefined : this.scene.restart()), 250);
+      this.resizeTimer = setTimeout(() => (this.box.active || this.hookah.active || this.timing.active ? undefined : this.scene.restart()), 250);
     };
     this.scale.on('resize', onResize);
     this.events.once('shutdown', () => {
@@ -130,6 +154,7 @@ export class InteriorScene extends Phaser.Scene {
       if (this.resizeTimer) clearTimeout(this.resizeTimer);
       for (const id of ['stas', ...this.npcs.map((n) => n.id)]) this.w3.setFigure(id, 0, 0, false);
       this.w3.leaveInterior();
+      stopMusic();
       persist();
     });
 
@@ -142,7 +167,7 @@ export class InteriorScene extends Phaser.Scene {
           npcs: () => this.npcs.map((n) => ({ id: n.id, sitting: !!n.seat })),
           use: () => this.useSpot(),
           talk: (id: string) => this.box.open(id),
-          press: () => this.hookah.press(),
+          press: () => { this.timing.press(); this.hookah.press(); },
           setDistance: (d: number) => this.w3.setDistance(d),
         },
       });
@@ -170,6 +195,7 @@ export class InteriorScene extends Phaser.Scene {
   private buildUi(W: number, H: number): void {
     this.hud = createHud(this, this.state, { width: W });
     this.place = this.add.text(W / 2, 70, venueById(this.venueId)?.name ?? '', { fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#e8d8ff', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(100);
+    this.quest = this.add.text(W / 2, 94, '', { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: '#ffd23a', stroke: '#000', strokeThickness: 4, align: 'center', wordWrap: { width: W - 90 } }).setOrigin(0.5, 0).setDepth(100);
     this.hint = this.add.text(W / 2, H - 38, '', { fontFamily: FONT, fontSize: '13px', color: '#ffe08a', stroke: '#000', strokeThickness: 3, align: 'center', wordWrap: { width: W - 20 } }).setOrigin(0.5).setDepth(100);
     this.toast = this.add.text(W / 2, 110, '', { fontFamily: FONT, fontSize: '15px', color: '#fff', backgroundColor: '#000000cc', padding: { x: 10, y: 6 }, align: 'center', wordWrap: { width: Math.min(W - 40, 520) } }).setOrigin(0.5, 0).setDepth(120).setVisible(false);
     this.stickBase = this.add.circle(0, 0, 54, 0xffffff, 0.2).setDepth(105).setVisible(false);
@@ -188,14 +214,36 @@ export class InteriorScene extends Phaser.Scene {
       b.on('pointerdown', () => this.w3.setDistance(this.w3.getDistance() * (k as number)));
     });
 
-    this.box = new DialogueBox({ scene: this, width: W, height: H, add: (o) => o, onClose: () => this.hud.update() });
+    this.box = new DialogueBox({ scene: this, width: W, height: H, add: (o) => o, onClose: (id, helped) => {
+        const msgs = onTalk(this.state, id);
+        const q = helped ? offerQuest(this.state, id) : null;
+        if (q) msgs.push(`Новое задание: «${q.title}»`, q.intro);
+        this.showToast(msgs);
+        persist();
+        this.hud.update();
+      },
+    });
+    this.timing = new TimingGame({
+      scene: this, width: W, height: H, onGood: () => this.room.burst(this.px, this.pz),
+      onDone: (r) => {
+        const p = this.pending;
+        this.pending = null;
+        if (!p) return;
+        const eff = sumEffects(p.a.effect, p.g.bonus(r.good, r.rounds));
+        const msgs = applyEffect(this.state, eff);
+        this.showToast([`${r.good} из ${r.rounds} удачно`, describeEffect(eff), ...msgs, ...onAction(this.state, this.venueId, p.idx)]);
+        sfx.coin();
+        persist(); this.hud.update();
+      },
+    });
     this.hookah = new HookahGame({
       scene: this, width: W, height: H,
-      onPuff: () => this.room.burst(this.px, this.pz),
+      onPuff: () => { sfx.puff(); this.room.burst(this.px, this.pz); },
       onDone: (r) => {
         const eff = { money: -600, mood: r.mood, health: r.health, energy: r.energy, minutes: 90 };
         const msgs = applyEffect(this.state, eff);
         this.showToast([describeEffect(eff), ...msgs]);
+        sfx.coin();
         persist();
         this.hud.update();
       },
@@ -207,17 +255,18 @@ export class InteriorScene extends Phaser.Scene {
     this.keys = kb.createCursorKeys();
     this.wasd = kb.addKeys('W,A,S,D') as Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
     const act = (): void => {
+      if (this.timing.active) { this.timing.press(); return; }
       if (this.hookah.active) { this.hookah.press(); return; }
       if (this.box.active) return;
       if (this.talkTarget) this.startTalk();
       else if (this.useTarget) this.useSpot();
     };
     kb.on('keydown-E', act);
-    kb.on('keydown-SPACE', () => { if (this.hookah.active) this.hookah.press(); });
+    kb.on('keydown-SPACE', () => { if (this.timing.active) this.timing.press(); else if (this.hookah.active) this.hookah.press(); });
     this.input.on('wheel', (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => { if (!this.box.active) this.w3.setDistance(this.w3.getDistance() * (dy > 0 ? 1.12 : 0.89)); });
     this.input.addPointer(1);
     this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
-      if (this.box.active || this.hookah.active || over.length > 0 || this.stick.active) return;
+      if (this.box.active || this.hookah.active || this.timing.active || over.length > 0 || this.stick.active) return;
       this.stick = { active: true, ox: p.x, oy: p.y, dx: 0, dy: 0, id: p.id };
       this.stickBase.setPosition(p.x, p.y).setVisible(true);
       this.stickKnob.setPosition(p.x, p.y).setVisible(true);
@@ -250,7 +299,7 @@ export class InteriorScene extends Phaser.Scene {
   }
 
   private startTalk(): void {
-    if (!this.talkTarget || this.box.active || this.hookah.active) return;
+    if (!this.talkTarget || this.box.active || this.hookah.active || this.timing.active) return;
     this.stick.active = false; this.stick.dx = 0; this.stick.dy = 0;
     this.stickBase.setVisible(false); this.stickKnob.setVisible(false);
     this.box.open(this.talkTarget);
@@ -265,11 +314,11 @@ export class InteriorScene extends Phaser.Scene {
 
   private useSpot(): void {
     const s = this.useTarget;
-    if (!s || this.box.active || this.hookah.active) return;
+    if (!s || this.box.active || this.hookah.active || this.timing.active) return;
     const hour = this.state.minutes / 60;
     if (s.id === 'exit') { persist(); this.scene.start('map'); return; }
     if (s.id === 'bar') {
-      if (this.state.money < 500) { this.showToast(['Не хватает денег']); return; }
+      if (this.state.money < 500) { this.showToast(['Не хватает денег']); sfx.bad(); return; }
       const eff = { money: -500, mood: 10, energy: -5, minutes: 45 };
       this.showToast([describeEffect(eff), ...applyEffect(this.state, eff)]);
       persist(); this.hud.update();
@@ -282,8 +331,16 @@ export class InteriorScene extends Phaser.Scene {
       const reason = a.blocked?.(this.state) ?? null;
       if (reason) { this.showToast([reason]); return; }
       if (a.special === 'work') { persist(); this.scene.start('calls'); return; }
+      const game = GAMES[this.venueId];
+      if (game && !a.special) {
+        this.stick.active = false; this.stick.dx = 0; this.stick.dy = 0;
+        this.stickBase.setVisible(false); this.stickKnob.setVisible(false);
+        this.pending = { a, idx: s.action, g: game };
+        this.timing.open(game.cfg);
+        return;
+      }
       const msgs = a.special === 'sleep' ? sleepAtHome(this.state, 8) : applyEffect(this.state, a.effect);
-      this.showToast([a.special === 'sleep' ? 'Проспал 8 часов: энергия восстановилась' : describeEffect(a.effect), ...msgs]);
+      this.showToast([a.special === 'sleep' ? 'Проспал 8 часов: энергия восстановилась' : describeEffect(a.effect), ...msgs, ...onAction(this.state, this.venueId, s.action)]);
       persist(); this.hud.update();
       return;
     }
@@ -299,18 +356,21 @@ export class InteriorScene extends Phaser.Scene {
   // --- frame -----------------------------------------------------------------------------------------
   override update(_t: number, dtMs: number): void {
     const dt = Math.min(dtMs, 100) / 1000;
-    const busy = this.box.active || this.hookah.active;
+    const busy = this.box.active || this.hookah.active || this.timing.active;
 
     if (!busy) {
       this.clockAcc += dt * GAME_MINUTES_PER_SECOND;
-      while (this.clockAcc >= 1 && !this.state.ended) { this.clockAcc -= 1; this.showToast(advance(this.state, 1)); }
+      while (this.clockAcc >= 1 && !this.state.ended) { this.clockAcc -= 1; this.showToast([...advance(this.state, 1), ...tickQuests(this.state)]); }
       if (this.state.ended) { persist(); this.scene.start('end'); return; }
       this.saveAcc += dt;
       if (this.saveAcc > 5) { this.saveAcc = 0; persist(); }
     }
     if (this.state.ended) return;
     this.hud.update();
+    const qt = currentTargets(this.state)[0];
+    this.quest.setText(qt ? `▶ ${qt.text}  ·  осталось ${qt.hoursLeft} ч` : '');
     this.hookah.update(dt);
+    this.timing.update(dt);
     this.room.update(dt);
 
     let vx = 0, vz = 0;

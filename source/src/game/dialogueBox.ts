@@ -12,7 +12,7 @@ export interface BoxOpts {
   width: number;
   height: number;
   add: Add;
-  onClose: () => void;
+  onClose: (characterId: string, helped: boolean) => void;
 }
 
 /** Applies the consequence once per game day per character, so talking over and over cannot be farmed. Returns a short summary. */
@@ -36,6 +36,7 @@ export function finishDialogue(characterId: string, dialogue: Dialogue): string 
 /** Conversation panel pinned to the bottom of the screen over the game world (no separate screen). */
 export class DialogueBox {
   active = false;
+  helped = false;
   private objs: Phaser.GameObjects.GameObject[] = [];
   private dialogue: Dialogue | null = null;
   private characterId = '';
@@ -65,7 +66,7 @@ export class DialogueBox {
     this.keyHandler = null;
     this.pick = null;
     this.active = false;
-    this.o.onClose();
+    this.o.onClose(this.characterId, this.helped);
   }
 
   private clear(): void {
@@ -114,6 +115,7 @@ export class DialogueBox {
     if (!this.dialogue) return;
     if (line.ended) { this.close(); return; }
     const next = this.dialogue.next(i);
+    if (next.ended) this.helped = this.dialogue.getFlag(`${this.characterId}_helped`);
     this.render(next, next.ended ? finishDialogue(this.characterId, this.dialogue) : '');
   }
 }
