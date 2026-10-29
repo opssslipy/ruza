@@ -69,6 +69,7 @@ function headTexture(img: HTMLImageElement | null, skin: string, photo: boolean)
   g.save(); g.clip();
   // photos are already cropped to the face; the drawn portraits are cropped tight so their dark background does not show
   if (img) { if (photo) g.drawImage(img, 8, 8, 240, 240); else g.drawImage(img, 66, 74, 108, 108, 8, 8, 240, 240); }
+  if (!img) { g.fillStyle = '#2a1f1a'; g.beginPath(); g.arc(92, 112, 9, 0, 7); g.arc(164, 112, 9, 0, 7); g.fill(); g.lineWidth = 8; g.strokeStyle = '#7a3b2e'; g.beginPath(); g.arc(128, 150, 34, 0.2, Math.PI - 0.2); g.stroke(); }
   g.restore();
   g.beginPath(); g.arc(128, 128, 118, 0, Math.PI * 2);
   g.lineWidth = 10; g.strokeStyle = '#2a1f1a'; g.stroke();

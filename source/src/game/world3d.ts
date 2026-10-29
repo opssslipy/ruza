@@ -4,6 +4,7 @@ import { FONT } from '../config';
 import type { MapData } from './mapData';
 import { addGun, buildRig, DESIGN_H, FACE_Y, pose, type Rig } from './figure3d';
 import { LOOKS, type Look } from './sprites';
+import { advanceWalker, makeCar, pickRoads, polyline, randomLook, sampleAt, type Walker } from './streetLife';
 
 // Low-poly 3D town: OSM footprints extruded into houses, flat road ribbons, instanced trees and windows, billboard figures.
 // Units are metres: x = east, z = south (map pixels / 3). Phaser keeps drawing the interface on a transparent canvas on top.
@@ -51,6 +52,9 @@ export class World3D {
   private winLit: Uint8Array = new Uint8Array(0);
   private winMode = -1;
   private heads = new Map<string, HTMLImageElement | null>();
+  private extraLooks = new Map<string, Look>();
+  private traffic: { g: THREE.Group; w: Walker; lane: number }[] = [];
+  private crowd: { id: string; w: Walker }[] = [];
   private ready: Promise<void>;
   private flatMats: { m: THREE.MeshBasicMaterial; base: THREE.Color }[] = [];
 
@@ -70,6 +74,7 @@ export class World3D {
     this.buildBuildings();
     this.buildTrees();
     this.buildLabels();
+    this.buildStreetLife();
     this.ready = this.loadFigures();
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -414,7 +419,7 @@ export class World3D {
   /** Builds the 3D body once the portrait for its head has loaded. */
   private ensureRig(f: Fig, id: string): void {
     if (f.rig || !this.heads.has(id)) return;
-    const look = LOOKS.find((l) => l.id === id);
+    const look = LOOKS.find((l) => l.id === id) ?? this.extraLooks.get(id);
     if (!look) return;
     const rig = buildRig(look, this.heads.get(id) ?? null);
     rig.root.traverse((o) => { o.renderOrder = 30; });
@@ -450,6 +455,54 @@ export class World3D {
     f.shadow.position.set(x, 0.2, z);
     f.shadow.visible = visible;
     if (f.rig) { f.rig.root.visible = visible; f.rig.face.visible = visible; }
+  }
+
+  // --- street life: traffic and passers-by --------------------------------------------------------
+  private buildStreetLife(): void {
+    const sq = this.map.landmarks.find((l) => l.id === 'square')?.pos ?? [this.map.width / 2, this.map.height / 2];
+    const seeded = (seed: number): (() => number) => { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; };
+    const r = seeded(77);
+    const colors = [0xd8352f, 0xf2c230, 0x2f7de1, 0xf2f2f2, 0x1f1f24, 0x3fae5a, 0xe86a1f, 0x8a8f9c];
+    const mk = (l: { p: number[] }, speed: number, dir: number, s0: number): Walker => { const { cum, total } = polyline(l.p); return { path: l.p, cum, total, s: s0 * total, speed, dir }; };
+    // cars: along the real streets near the centre, two lanes, back and forth
+    const streets = pickRoads(this.map.roads, [sq[0], sq[1]], 70, 900, 650, 6, 14);
+    for (let i = 0; i < Math.min(22, streets.length * 2); i++) {
+      const l = streets[i % streets.length] as { p: number[]; w: number };
+      const g = makeCar(colors[i % colors.length] as number);
+      this.city.add(g);
+      this.traffic.push({ g, w: mk(l, 7 + r() * 8, i % 2 === 0 ? 1 : -1, r()), lane: i % 2 === 0 ? 2.4 : -2.4 });
+    }
+    // passers-by: along footpaths and small streets
+    const paths = pickRoads(this.map.roads, [sq[0], sq[1]], 40, 600, 500, 2, 6);
+    for (let i = 0; i < Math.min(14, paths.length); i++) {
+      const id = `ped${i}`;
+      this.extraLooks.set(id, randomLook(id, r));
+      this.heads.set(id, null);
+      this.addFigure(id, null);
+      this.crowd.push({ id, w: mk(paths[(i * 3) % paths.length] as { p: number[] }, 3.2 + r() * 1.6, r() < 0.5 ? 1 : -1, r()) });
+    }
+  }
+
+  streetStats(): { cars: number; walkers: number; first: { x: number; z: number } | null } {
+    const c = this.traffic[0];
+    return { cars: this.traffic.length, walkers: this.crowd.length, first: c ? { x: c.g.position.x, z: c.g.position.z } : null };
+  }
+
+  private updateStreetLife(dt: number): void {
+    const carK = Math.max(1, (this.inInterior ? 0 : this.dist) / 70); // cars grow with the camera height like people do
+    for (const c of this.traffic) {
+      advanceWalker(c.w, dt);
+      const p = sampleAt(c.w, c.w.s), f = c.w.dir;
+      c.g.position.set(p.x - p.dz * c.lane * f, 0, p.z + p.dx * c.lane * f);
+      c.g.rotation.y = Math.atan2(p.dx * f, p.dz * f);
+      c.g.scale.setScalar(carK);
+    }
+    const show = !this.inInterior && !this.titleMode;
+    for (const c of this.crowd) {
+      advanceWalker(c.w, dt);
+      const p = sampleAt(c.w, c.w.s), f = c.w.dir;
+      this.setFigure(c.id, p.x, p.z, show, true, Math.atan2(p.dx * f, p.dz * f));
+    }
   }
 
   // --- title screen: orbiting camera, cars on a street, armed heroes ------------------------------
@@ -618,6 +671,7 @@ export class World3D {
       t.sprite.scale.set(sy * ts.aspect, sy, 1);
     }
     this.updateCars(dt);
+    this.updateStreetLife(dt);
     this.renderer.render(this.scene, this.camera);
   }
 }

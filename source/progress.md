@@ -60,3 +60,7 @@ Done: password gate removed everywhere (anyone with a link can play; faces are p
 Done: every venue is now a walk-in 3D room (InteriorScene + src/game/interiors.ts and interiors2.ts): The Дым (neon lounge, sofas, hookah tables with drifting smoke, bar, friends sitting or strolling, hookah mini-game: flavour + 3 timed puffs), shops (Pyaterochka shelves with products and fridge, shawarma stand with a spinning spit, pharmacy), gym (treadmills, bench with barbell), club (Ruzvelt/Mixbar: glowing dance floor, DJ booth, flashing lights), home (bed, sofa, TV, desk, fridge), police (desks, cell), hospital (beds), cinema (seat rows), garages (car, barrels). Walk with joystick/WASD, collisions, people from the schedules sit on sofas/seats or wander, actions run from the existing venue actions (price, effect, time). The old flat VenueScene is no longer reached.
 Verified headless Edge: all 12 rooms enter + first action works, full play-through (shop, home work calls, endings) OK, no console errors.
 NEXT: life on the map (cars and passers-by on streets, street events/quests), sound, performance check on a real phone.
+
+## 2026-10-29 update 7: street life
+Done: 22 cars drive along real streets near the centre (two lanes, back and forth, they grow with camera height), 14 passers-by with random costumes and generic faces walk along footpaths. Hidden inside buildings and on the title screen (cars stay on the title). Source: src/game/streetLife.ts.
+NEXT (not done): street events and small quests on the map, sound, performance check on a real phone.
